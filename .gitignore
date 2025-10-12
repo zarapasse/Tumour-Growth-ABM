@@ -6,3 +6,16 @@ __pycache__/
 env/
 .venv/
 venv/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+*.tmp
+*.swp
