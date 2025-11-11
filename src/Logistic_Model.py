@@ -34,12 +34,20 @@ class TumourCell(Agent):
         - Each cell samples birth and death independently.
         - This method mutates model.agents and model.resources directly.
         """
-
+        # Death due to lack of resources
+        if self.model.resources >= self.model.maintainance_cost:
+            self.model.resources -= self.model.maintainance_cost
+        else:
+            self.model.agents.remove(self)
+            return   
+        
+        # Natural death
         if np.random.rand() < self.p_death:
             self.model.agents.remove(self)
             return
 
-        if self.model.resources > self.model.division_cost:
+        # Division if enough resources
+        if self.model.resources >= self.model.division_cost:
             if np.random.rand() < self.p_birth:
                 self.model.resources -= self.model.division_cost
                 TumourCell(self.model, self.p_birth, self.p_death)
@@ -71,6 +79,7 @@ class TumourModel(Model):
         initial_resources,
         resource_influx,
         division_cost,
+        maintainance_cost
     ):
         """Initialise the tumour model.
 
@@ -88,6 +97,7 @@ class TumourModel(Model):
         self.resources = initial_resources
         self.resource_influx = resource_influx
         self.division_cost = division_cost
+        self.maintainance_cost = maintainance_cost
 
         # convert continuous rates to per-step probabilities
         self.p_birth = 1 - np.exp(-birth_rate * dt)
@@ -113,8 +123,8 @@ class TumourModel(Model):
 
 
 # ------------------- Parameters ------------------- #
-timesteps = 300
-n_runs = 30  # number of independent simulations
+timesteps = 500
+n_runs = 50  # number of independent simulations
 initial_cells = 1
 
 # ------------------- Run Multiple Simulations ------------------- #
@@ -124,12 +134,13 @@ all_resources = []
 for run in range(n_runs):
     model = TumourModel(
         initial_cells=initial_cells,
-        birth_rate=0.5,
-        death_rate=0.05,
+        birth_rate=0.7,
+        death_rate=0.01,
         dt=0.1,
-        initial_resources=20,
-        resource_influx=8,
-        division_cost=0.5,
+        initial_resources=100,
+        resource_influx=10,
+        division_cost=1,
+        maintainance_cost=0.1
     )
 
     cell_counts = []
@@ -165,20 +176,8 @@ plt.fill_between(
 )
 
 # Resources
-plt.plot(
-    timesteps_array,
-    mean_resources,
-    label="Mean resources",
-    color="tab:orange",
-    linestyle="--",
-)
-plt.fill_between(
-    timesteps_array,
-    mean_resources - std_resources,
-    mean_resources + std_resources,
-    color="tab:orange",
-    alpha=0.2,
-)
+
+
 
 plt.xlabel("Time step")
 plt.ylabel("Count")
