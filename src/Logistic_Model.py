@@ -3,71 +3,87 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-"""Simple agent-based tumour birth-death model with resource-limited division."""
+"""Agent-based tumour model with explicit per-cell energy bookkeeping.
+
+This module extends a simple birth-death resource-limited model by adding
+per-cell energy, metabolic consumption, resource uptake (bounded by a cell's
+energy capacity), and energy-dependent division. Key behavioral changes from
+a minimal logistic ABM:
+
+- Each TumourCell stores 'energy' and consumes some at each timestep to stay alive. Cells die if energy reaches zero.
+- Cells take up resources from the global pool up to their capacity.
+- Division requires a minimum energy threshold and sufficient global resources;
+  on division a cell halves its energy and spawns a new cell with the same
+  energy.
+"""
 
 class TumourCell(Agent):
-    """ A single tumour cell agent.
+    """A single tumour cell.
 
-        Attributes:
-            model: Reference to the containing TumourModel instance.
-            p_birth (float): Per-step probability that this cell attempts to divide.
-            p_death (float): Per-step probability that this cell dies.
+    Attributes:
+        energy (float): Current internal energy of the cell.
+        energy_capacity (float): Maximum energy the cell can store.
     """
 
-    def __init__(self, model, p_birth, p_death):
+    def __init__(self, model, energy=10):
         super().__init__(model)
-        self.p_birth = p_birth
-        self.p_death = p_death
+        self.energy = energy
+        self.energy_capacity = 10
 
     def step(self):
-        """Perform one agent timestep.
+        """
+       Perform one cell timestep with energy-based behaviour.
 
-        Behaviour:
-        - With probability p_death the cell dies and is removed from the model's
-          agent list.
-        - If it survives and the model has enough resources (> division_cost),
-          it attempts division with probability p_birth. On successful division
-          the model's resources are reduced by division_cost and a new
-          TumourCell instance is created.
+        1. Consume energy (metabolism): if not enough energy in cell, it dies.
+        2. Replenish energy by uptaking from the model's global resources.
+        3. Attempt division if (a) the cell has sufficient internal energy
+           (> 5), (b) the model has at least model.division_cost resources,
+           and (c) a random draw exceeds the birth probability.
+           On division the model's resources are reduced by
+           division_cost and the parent halves its energy; a new TumourCell
+           is created with the same halved energy.
+        4. Independently of the above, perform a stochastic death draw using
+           p_death; on success the cell is removed.
 
         Notes:
-        - Each cell samples birth and death independently.
-        - This method mutates model.agents and model.resources directly.
+        - All randomness is sampled independently per cell and per timestep.
         """
-        # Death due to lack of resources
-        if self.model.resources >= self.model.maintainance_cost:
-            self.model.resources -= self.model.maintainance_cost
-        else:
-            self.model.agents.remove(self)
-            return   
-        
-        # Natural death
-        if np.random.rand() < self.p_death:
+
+        self.energy -= self.model.maintainance_cost
+
+        if self.energy <= 0:
             self.model.agents.remove(self)
             return
 
-        # Division if enough resources
-        if self.model.resources >= self.model.division_cost:
-            if np.random.rand() < self.p_birth:
-                self.model.resources -= self.model.division_cost
-                TumourCell(self.model, self.p_birth, self.p_death)
+        # Try to take up resources
+        uptake = min(self.model.resources, self.energy_capacity - self.energy)
+        self.energy += uptake
+        self.model.resources -= uptake
+
+        # Division only if enough energy
+        if (
+            self.energy > 5
+            and self.model.resources >= self.model.division_cost
+            and np.random.rand() < self.model.p_birth
+        ):
+            self.model.resources -= self.model.division_cost
+            self.energy /= 2  # split energy with new cell
+            
+            TumourCell(self.model, energy=self.energy)
+
+        # Natural death
+        if np.random.rand() < self.model.p_death:
+            self.model.agents.remove(self)
+            return
 
 
 class TumourModel(Model):
-    """Container model for tumour population with resource-limited division.
+    """Container model for tumour population with shared resources.
 
-    The model tracks a global resource pool and a collection of TumourCell
-    agents. Cells undergo stochastic birth and death each timestep. Continuous
-    rates (birth_rate, death_rate) are converted to per-step probabilities
-    via p = 1 - exp(-rate * dt).
+    This model keeps a global resource pool and a list of TumourCell agents.
+    Continuous-time birth and death rates are converted to per-step probabilities
+    using p = 1 - exp(-rate * dt).
 
-    Attributes:
-        resources (float): Current amount of available resources.
-        resource_influx (float): Resources added each timestep.
-        division_cost (float): Resource cost of dividing.
-        p_birth (float): Per-step division probability derived from birth_rate.
-        p_death (float): Per-step death probability derived from death_rate.
-        agents (list): Collection of TumourCell instances.
     """
 
     def __init__(
@@ -79,9 +95,10 @@ class TumourModel(Model):
         initial_resources,
         resource_influx,
         division_cost,
-        maintainance_cost
+        maintainance_cost,
     ):
-        """Initialise the tumour model.
+        """
+        Initialise the tumour model.
 
         Args:
             initial_cells (int): Number of initial tumour cells to create.
@@ -91,7 +108,8 @@ class TumourModel(Model):
             initial_resources (float): Initial amount of available resources.
             resource_influx (float): Amount of resources added each timestep.
             division_cost (float): Resource cost consumed when a cell divides.
-        """        
+            maintainance_cost (float): Cost per cell per timestep.
+        """
         super().__init__(seed=None)
 
         self.resources = initial_resources
@@ -105,14 +123,14 @@ class TumourModel(Model):
 
         # create initial population
         for i in range(initial_cells):
-            TumourCell(self, self.p_birth, self.p_death)
+            TumourCell(self)
 
     def step(self):
         """Advance the model state by one timestep.
 
         Actions performed:
         - Add resource_influx to the global resource pool.
-        - Iterate agents and let each perform its step (death/division).
+        - Iterate agents (in random order) and let each perform its step (death/division).
         """
 
         # Resources
@@ -140,7 +158,7 @@ for run in range(n_runs):
         initial_resources=100,
         resource_influx=10,
         division_cost=1,
-        maintainance_cost=0.1
+        maintainance_cost=0.1,
     )
 
     cell_counts = []
@@ -176,7 +194,6 @@ plt.fill_between(
 )
 
 # Resources
-
 
 
 plt.xlabel("Time step")
