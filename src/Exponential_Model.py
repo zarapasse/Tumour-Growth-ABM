@@ -14,6 +14,8 @@ inhibition function; no pharmacokinetics (PK) or spatial structure is
 implemented — drug is simply "on" during scheduled intervals.
 
 """
+
+
 class TumourCell(Agent):
     """Single tumour cell agent.
 
@@ -21,8 +23,9 @@ class TumourCell(Agent):
     - On each step the cell samples independent Bernoulli events based on
       the model's current p_birth and p_death.
     - If a birth event occurs the cell divides.
-    - If a death event occurs the cell is removed..
+    - If a death event occurs the cell is removed.
     """
+
     def __init__(self, model):
         super().__init__(model)
         self.p_birth = model.p_birth
@@ -34,18 +37,17 @@ class TumourCell(Agent):
             TumourCell(self.model)
         if np.random.rand() < self.model.p_death:
             self.model.agents.remove(self)
-            
+
+
 class TumourModel(Model):
     """
-    Population container for TumourCell agents with optional drug treatment.
-    
     Responsibilities:
     - Convert continuous birth_rate/death_rate to per-step probabilities using
       p = 1 - exp(-rate * dt).
     - Maintain an optional drug_schedule (list of (start_time, duration, conc))
       and expose a simple time-varying drug_conc (no PK).
     - Compute drug inhibition using a Hill function
-      and reduce the effective birth rate multiplicatively by DIP.
+      and reduce the effective death rate multiplicatively by Hill_multiplier.
     - Advance time and run agent steps in randomised order.
 
 
@@ -58,12 +60,12 @@ class TumourModel(Model):
         drug_schedule (list): list of (start_time, duration, concentration) tuples.
         drug_conc (float): current drug concentration.
         time (float): model time (advances by dt on each step).
-        E0, E1, C, n: parameters for the Hill inhibition function.
+        E0, E1, C, n: parameters for the Hill function.
     """
 
-    def __init__(self, initial_cells, birth_rate, death_rate, dt, drug_schedule = None):
+    def __init__(self, initial_cells, birth_rate, death_rate, dt, drug_schedule=None):
         super().__init__(seed=None)
-        
+
         self.birth_rate = birth_rate
         self.death_rate = death_rate
         self.dt = dt
@@ -78,76 +80,74 @@ class TumourModel(Model):
         self.drug_schedule = drug_schedule if drug_schedule is not None else []
         self.drug_conc = 0.0
         self.time = 0.0
-        
 
-        self.E0 = 1.0    # Baseline effect (no drug) - no inhibition
-        self.E1 = 0.2    # Maximum effect (saturating drug) - 80% inhibition
-        self.C = 1.0     # EC50 - concentration for half-maximal effect
-        self.n = 2.0     # Hill coefficient
-        
+        self.E0 = 1.0  # Baseline multiplier for death rate (no drug effect)
+        self.E1 = (
+            3.0  # Maximum multiplier for death rate under drug (e.g. up to 3x increase)
+        )
+        self.C = 1.0  # EC50 - concentration for half-maximal effect
+        self.n = 2.0  # Hill coefficient
 
-    
     def hill_equation(self, drug_conc=0.0):
-        """Calculate proliferation multiplier using Hill equation: H(x) = E₀ + (xⁿ(E₁-E₀))/(xⁿ + Cⁿ)"""
+        """Calculate death-rate multiplier using Hill equation:
+        H(x) = E0 + (x^n (E1 - E0)) / (x^n + C^n)
+        Returns a multiplier (>= E0) that should be applied to the baseline death rate.
+        E1-E0: maximum increase in death rate due to drug.
+        """
         if drug_conc <= 0:
             return self.E0
-        
-        DIP = self.E0 + (drug_conc ** self.n * (self.E1 - self.E0)) / (drug_conc ** self.n + self.C ** self.n)
-        
-        return DIP
-        
+
+        Hill_multiplier = self.E0 + (drug_conc**self.n * (self.E1 - self.E0)) / (
+            drug_conc**self.n + self.C**self.n
+        )
+
+        return Hill_multiplier
+
     def update_drug_concentration(self):
         """Advance model time by dt and set drug_conc according to the schedule.
 
         The method:
         - Increments self.time by self.dt.
-        - Sets self.drug_conc to the concentration of the first schedule entry
-          whose start <= time < start + duration, or 0.0 if none match.
+        - Sets self.drug_conc to the concentration specified in the schedule
 
         Notes:
         - This implements a simple on/off schedule (no PK or accumulation).
         """
         self.time += self.dt
-        
+
         self.drug_conc = 0.0
-        
+
         for start, duration, conc in self.drug_schedule:
             if start <= self.time < start + duration:
                 self.drug_conc = conc
                 break
-        
 
     def step(self):
         """Advance the model by one timestep.
 
         Workflow:
         1. Update the drug concentration and model time.
-        2. If drug is present, compute DIP via hill_equation and reduce the
-           effective birth rate: effective_birth_rate = birth_rate * DIP.
-           Update self.p_birth accordingly.
-        3. Otherwise restore p_birth from the baseline birth_rate.
-        4. Execute one step for every agent in randomized order via
-           self.agents.shuffle_do("step").
-           
+        2. If drug is present, compute death-rate multiplier via hill_equation and increase
+           the effective death rate: effective_death_rate = death_rate * Hill_multiplier.
+           Update self.p_death accordingly.
+        3. Otherwise restore p_death from the baseline death_rate.
+        4. Always keep p_birth at baseline (drug affects death only).
         """
-        
+
         self.update_drug_concentration()
         current_drug_conc = self.drug_conc
-        
+
+        # baseline p_birth
+        self.p_birth = 1 - np.exp(-self.birth_rate * self.dt)
+
         if current_drug_conc > 0:
-            DIP_multiplier = self.hill_equation(current_drug_conc)
-
-            effective_birth_rate = self.birth_rate * DIP_multiplier
-            self.p_birth = 1 - np.exp(-effective_birth_rate * self.dt)
-        
+            Hill_multiplier = self.hill_equation(current_drug_conc)
+            effective_death_rate = self.death_rate * Hill_multiplier
+            self.p_death = 1 - np.exp(-effective_death_rate * self.dt)
         else:
-            self.p_birth = 1 - np.exp(-self.birth_rate * self.dt)
-        
+            self.p_death = 1 - np.exp(-self.death_rate * self.dt)
+
         self.agents.shuffle_do("step")
-
-
-
-
 
 
 # -------------- Simulation and Plotting Code --------------
@@ -162,7 +162,7 @@ n_runs = 20
 
 # Drug schedule: list of (start_time, duration, concentration)
 drug_schedule = [
-    (5.0, 10.0, 1.0),   # Drug from t=5 to t-15 at concentration 1.0
+    (5.0, 10.0, 1.0),  # Drug from t=5 to t-15 at concentration 1.0
     (25.0, 10.0, 2.0),  # Drug from t=25 to t=35 at concentration 2.0
 ]
 
@@ -197,68 +197,114 @@ std_with_drug = all_populations_with_drug.std(axis=0)
 # Time array for plotting
 time = np.arange(steps) * dt
 
+
 # ========== ANALYTIC SOLUTIONS ==========
 def analytic_solution_no_drug(t, initial_cells, birth_rate, death_rate):
     """Simple exponential growth without drug"""
     return initial_cells * np.exp((birth_rate - death_rate) * t)
 
-def analytic_solution_with_drug(t, initial_cells, birth_rate, death_rate, drug_schedule, E0, E1, C, n):
-    """Piecewise analytic solution with drug effects using the new Hill form"""
+
+def analytic_solution_with_drug(
+    t, initial_cells, birth_rate, death_rate, drug_schedule, E0, E1, C, n
+):
+    """Piecewise analytic solution with drug effects (drug increases death rate)."""
     population = np.zeros_like(t)
     population[0] = initial_cells
-    
+
     for i in range(1, len(t)):
-        dt_step = t[i] - t[i-1]
-        
+        dt_step = t[i] - t[i - 1]
+
         # Determine current drug concentration
         current_drug_conc = 0.0
         for start, duration, conc in drug_schedule:
             if start <= t[i] < start + duration:
                 current_drug_conc = conc
                 break
-        
-        # Calculate effective birth rate with Hill equation
+
+        # Calculate effective death rate with Hill equation (drug increases death)
         if current_drug_conc > 0:
-            # Use the same Hill equation as the ABM
-            DIP_multiplier = E0 + (current_drug_conc ** n * (E1 - E0)) / (current_drug_conc ** n + C ** n)
-            effective_birth_rate = birth_rate * DIP_multiplier
+            Hill_multiplier = E0 + (current_drug_conc**n * (E1 - E0)) / (
+                current_drug_conc**n + C**n
+            )
+            effective_death_rate = death_rate * Hill_multiplier
         else:
-            effective_birth_rate = birth_rate
-        
-        # Exponential growth with current rates
-        growth_rate = effective_birth_rate - death_rate
-        population[i] = population[i-1] * np.exp(growth_rate * dt_step)
-    
+            effective_death_rate = death_rate
+
+        # Exponential growth/decay with current rates
+        growth_rate = birth_rate - effective_death_rate
+        population[i] = population[i - 1] * np.exp(growth_rate * dt_step)
+
     return population
 
-# Calculate analytic solutions
-analytic_no_drug = analytic_solution_no_drug(time, initial_cells, birth_rate, death_rate)
-analytic_with_drug = analytic_solution_with_drug(time, initial_cells, birth_rate, death_rate, 
-                                                drug_schedule, E0=1.0, E1=0.2, C=1.0, n=2.0)
 
+# Calculate analytic solutions
+analytic_no_drug = analytic_solution_no_drug(
+    time, initial_cells, birth_rate, death_rate
+)
+analytic_with_drug = analytic_solution_with_drug(
+    time,
+    initial_cells,
+    birth_rate,
+    death_rate,
+    drug_schedule,
+    E0=1.0,
+    E1=3.0,
+    C=1.0,
+    n=2.0,  # match TumourModel defaults (drug increases death rate)
+)
 # ========== PLOTTING ==========
 plt.figure(figsize=(12, 8))
 
 # Plot ABM results
-plt.plot(time, mean_no_drug, 'b-', label='No Drug - ABM Mean', linewidth=2)
-plt.fill_between(time, mean_no_drug - std_no_drug, mean_no_drug + std_no_drug, 
-                 color='blue', alpha=0.2, label='No Drug - ±1 Std Dev')
-plt.plot(time, mean_with_drug, 'r-', label='With Drug - ABM Mean', linewidth=2)
-plt.fill_between(time, mean_with_drug - std_with_drug, mean_with_drug + std_with_drug, 
-                 color='red', alpha=0.2, label='With Drug - ±1 Std Dev')
+plt.plot(time, mean_no_drug, "b-", label="No Drug - ABM Mean", linewidth=2)
+plt.fill_between(
+    time,
+    mean_no_drug - std_no_drug,
+    mean_no_drug + std_no_drug,
+    color="blue",
+    alpha=0.2,
+    label="No Drug - ±1 Std Dev",
+)
+plt.plot(time, mean_with_drug, "r-", label="With Drug - ABM Mean", linewidth=2)
+plt.fill_between(
+    time,
+    mean_with_drug - std_with_drug,
+    mean_with_drug + std_with_drug,
+    color="red",
+    alpha=0.2,
+    label="With Drug - ±1 Std Dev",
+)
 
 # Plot analytic solutions
-plt.plot(time, analytic_no_drug, 'b--', label='Analytic - No Drug', linewidth=2, alpha=0.7)
-plt.plot(time, analytic_with_drug, 'r--', label='Analytic - With Drug', linewidth=2, alpha=0.7)
+plt.plot(
+    time, analytic_no_drug, "b--", label="Analytic - No Drug", linewidth=2, alpha=0.7
+)
+plt.plot(
+    time,
+    analytic_with_drug,
+    "r--",
+    label="Analytic - With Drug",
+    linewidth=2,
+    alpha=0.7,
+)
 
 # Mark drug treatment periods
 for start_time, duration, concentration in drug_schedule:
-    plt.axvspan(start_time, start_time + duration, alpha=0.2, color='gray', 
-                label=f'Drug Treatment (C={concentration})' if start_time == drug_schedule[0][0] else "")
+    plt.axvspan(
+        start_time,
+        start_time + duration,
+        alpha=0.2,
+        color="gray",
+        label=(
+            f"Drug Treatment (C={concentration})"
+            if start_time == drug_schedule[0][0]
+            else ""
+        ),
+    )
 
-plt.xlabel('Time')
-plt.ylabel('Number of cells')
-plt.title('Tumour Cell Population: ABM vs Analytic Solutions (Linear Scale)')
+plt.xlabel("Time")
+plt.ylabel("Number of cells")
+plt.title("Tumour Cell Population: ABM vs Analytic Solutions (Linear Scale)")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
@@ -266,7 +312,9 @@ plt.show()
 
 # Print diagnostic information
 print(f"\nGrowth rate without drug: {birth_rate - death_rate:.3f}")
-print(f"Expected doubling time without drug: {np.log(2)/(birth_rate - death_rate):.2f} time units")
+print(
+    f"Expected doubling time without drug: {np.log(2)/(birth_rate - death_rate):.2f} time units"
+)
 
 # Check final populations
 final_abm_no_drug = mean_no_drug[-1]
@@ -275,5 +323,9 @@ final_abm_with_drug = mean_with_drug[-1]
 final_analytic_with_drug = analytic_with_drug[-1]
 
 print(f"\nFinal populations:")
-print(f"No Drug - ABM: {final_abm_no_drug:.0f}, Analytic: {final_analytic_no_drug:.0f}, Ratio: {final_abm_no_drug/final_analytic_no_drug:.3f}")
-print(f"With Drug - ABM: {final_abm_with_drug:.0f}, Analytic: {final_analytic_with_drug:.0f}, Ratio: {final_abm_with_drug/final_analytic_with_drug:.3f}")
+print(
+    f"No Drug - ABM: {final_abm_no_drug:.0f}, Analytic: {final_analytic_no_drug:.0f}, Ratio: {final_abm_no_drug/final_analytic_no_drug:.3f}"
+)
+print(
+    f"With Drug - ABM: {final_abm_with_drug:.0f}, Analytic: {final_analytic_with_drug:.0f}, Ratio: {final_abm_with_drug/final_analytic_with_drug:.3f}"
+)
