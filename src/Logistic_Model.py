@@ -17,6 +17,7 @@ a minimal logistic ABM:
   energy.
 """
 
+
 class TumourCell(Agent):
     """A single tumour cell.
 
@@ -32,21 +33,21 @@ class TumourCell(Agent):
 
     def step(self):
         """
-       Perform one cell timestep with energy-based behaviour.
+        Perform one cell timestep with energy-based behaviour.
 
-        1. Consume energy (metabolism): if not enough energy in cell, it dies.
-        2. Replenish energy by uptaking from the model's global resources.
-        3. Attempt division if (a) the cell has sufficient internal energy
-           (> 5), (b) the model has at least model.division_cost resources,
-           and (c) a random draw exceeds the birth probability.
-           On division the model's resources are reduced by
-           division_cost and the parent halves its energy; a new TumourCell
-           is created with the same halved energy.
-        4. Independently of the above, perform a stochastic death draw using
-           p_death; on success the cell is removed.
+         1. Consume energy (metabolism): if not enough energy in cell, it dies.
+         2. Replenish energy by uptaking from the model's global resources.
+         3. Attempt division if (a) the cell has sufficient internal energy
+            (> 5), (b) the model has at least model.division_cost resources,
+            and (c) a random draw exceeds the birth probability.
+            On division the model's resources are reduced by
+            division_cost and the parent halves its energy; a new TumourCell
+            is created with the same halved energy.
+         4. Independently of the above, perform a stochastic death draw using
+            p_death; on success the cell is removed.
 
-        Notes:
-        - All randomness is sampled independently per cell and per timestep.
+         Notes:
+         - All randomness is sampled independently per cell and per timestep.
         """
 
         self.energy -= self.model.maintainance_cost
@@ -68,7 +69,7 @@ class TumourCell(Agent):
         ):
             self.model.resources -= self.model.division_cost
             self.energy /= 2  # split energy with new cell
-            
+
             TumourCell(self.model, energy=self.energy)
 
         # Natural death
@@ -144,6 +145,7 @@ class TumourModel(Model):
 timesteps = 500
 n_runs = 50  # number of independent simulations
 initial_cells = 1
+dt = 0.1  # timestep duration
 
 # ------------------- Run Multiple Simulations ------------------- #
 all_cell_counts = []
@@ -154,7 +156,7 @@ for run in range(n_runs):
         initial_cells=initial_cells,
         birth_rate=0.7,
         death_rate=0.01,
-        dt=0.1,
+        dt=dt,
         initial_resources=100,
         resource_influx=10,
         division_cost=1,
@@ -181,24 +183,59 @@ std_resources = np.std(all_resources, axis=0)
 
 # ------------------- Plot ------------------- #
 plt.figure(figsize=(10, 5))
-timesteps_array = np.arange(timesteps)
+t = np.arange(timesteps) * dt  # physical time axis
 
 # Cell counts
-plt.plot(timesteps_array, mean_cells, label="Mean cell count", color="tab:blue")
+plt.plot(t, mean_cells, label="Mean cell count", color="tab:blue")
 plt.fill_between(
-    timesteps_array,
+    t,
     mean_cells - std_cells,
     mean_cells + std_cells,
     color="tab:blue",
     alpha=0.2,
 )
 
-# Resources
+# ------------------- Logistic fit (per-capita growth regression) ------------------- #
+eps = 1e-9
+N = mean_cells.astype(float)
+N_safe = np.maximum(N, eps)
 
+# Instantaneous per-capita growth over dt
+r_inst = (1.0 / dt) * np.log(N_safe[1:] / N_safe[:-1])
+N_mid = N[:-1]
+t_mid = t[:-1]
 
-plt.xlabel("Time step")
+# Robust initial K from late segment
+late = max(5, int(0.2 * len(N_mid)))
+K_init = max(np.median(N_mid[-late:]), np.max(N_mid) * 0.9)
+
+# Use mid-range data for linear fit: r(N) = r - (r/K) N
+mid_mask = (N_mid > 0.1 * K_init) & (N_mid < 0.9 * K_init) & np.isfinite(r_inst)
+if np.count_nonzero(mid_mask) >= 5:
+    slope, intercept = np.polyfit(N_mid[mid_mask], r_inst[mid_mask], 1)
+    # r(N) = intercept + slope * N  => r_hat = intercept, K_hat = -intercept / slope
+    r_hat = float(intercept)
+    K_hat = float(-intercept / slope) if slope < 0 else np.nan
+
+    if np.isfinite(K_hat) and K_hat > 0 and r_hat > 0:
+        N0 = max(N[0], eps)
+        logistic = K_hat / (1.0 + ((K_hat - N0) / N0) * np.exp(-r_hat * t))
+        plt.plot(
+            t,
+            logistic,
+            "k--",
+            linewidth=2,
+            alpha=0.9,
+            label=f"Logistic fit (K={K_hat:.1f}, r={r_hat:.3f})",
+        )
+    else:
+        print("Warning: logistic parameters not identifiable (bad slope). Skipping.")
+else:
+    print("Warning: not enough mid-range points to fit logistic curve; skipping.")
+
+plt.xlabel("Time")
 plt.ylabel("Count")
-plt.title("Mean ± SD over Multiple Runs: Logistic-like Behaviour Emerges")
+plt.title("Mean ± SD over Multiple Runs with Logistic Fit")
 plt.legend()
 plt.tight_layout()
 plt.show()
