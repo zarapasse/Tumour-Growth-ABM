@@ -7,15 +7,15 @@
     "steps": 200,
     "n_runs": 10
   },
-
   "drug": {
     "alpha": 0.5,
-    "schedule": [
-      [10.0, 0.0],
-      [10.0, 10.0]
+    "schedule": [ [10.0, 0.0], [10.0, 10.0] ],  
+    "schedules": [        
+      { "name": "Even (2x10)", "schedule": [ [10.0, 0.0], [10.0, 10.0] ] },
+      { "name": "Odd (1x20)", "schedule": [ [20.0, 0.0] ] },
+      { "name": "No Drug", "schedule": [  ]}
     ]
   },
-
   "hill_parameters": {
     "E0": 0.0,
     "E1": 0.6,

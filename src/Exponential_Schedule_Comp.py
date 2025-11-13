@@ -218,24 +218,7 @@ def analytic_population_no_drug(time, N0, birth_rate, death_rate):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# -------------- Simulation and Plotting Code --------------
-
-# Define Parameters
+# Parameters (from config)
 initial_cells = sim_params["initial_cells"]
 birth_rate = sim_params["birth_rate"]
 death_rate = sim_params["death_rate"]
@@ -244,174 +227,104 @@ steps = sim_params["steps"]
 T = steps * dt
 n_runs = sim_params["n_runs"]
 
-# Drug schedule: list of (amount, time) for bolus dosing
-drug_schedule = [tuple(d) for d in drug_params["schedule"]]  # list of (amount, time)
-alpha = drug_params["alpha"]
+# Support multiple drug schedules from config
+single_schedule = [tuple(d) for d in drug_params.get("schedule", [])]
+default_alpha = drug_params.get("alpha", 0.5)
 
-# Run simulations with and without drug for comparison
-all_populations_no_drug = np.zeros((n_runs, steps))
-all_populations_with_drug = np.zeros((n_runs, steps))
+scenarios = []
+if "schedules" in drug_params and isinstance(drug_params["schedules"], list):
+    for idx, sc in enumerate(drug_params["schedules"]):
+        name = sc.get("name", f"Schedule {idx+1}")
+        sched = [tuple(d) for d in sc.get("schedule", [])]
+        alpha_sc = sc.get("alpha", default_alpha)
+        scenarios.append({"name": name, "schedule": sched, "alpha": alpha_sc})
+else:
+    scenarios.append({"name": "Schedule 1", "schedule": single_schedule, "alpha": default_alpha})
 
-# Also track drug concentration for one run
-drug_concentrations = []
-
-print("Running simulations without drug...")
-for run in range(n_runs):
-    model = TumourModel(
-        initial_cells,
-        birth_rate,
-        death_rate,
-        dt,
-        drug_schedule=[],
-        alpha=alpha,
-        hill_params=hill_params,
-    )
-    population_sizes = []
-    for step in range(steps):
-        model.step()
-        population_sizes.append(len(model.agents))
-    all_populations_no_drug[run, :] = population_sizes
-
-print("Running simulations with drug...")
-for run in range(n_runs):
-    model = TumourModel(
-        initial_cells,
-        birth_rate,
-        death_rate,
-        dt,
-        drug_schedule=drug_schedule.copy(),
-        alpha=alpha,
-        hill_params=hill_params,
-    )
-    population_sizes = []
-    concentration_history = []
-    for step in range(steps):
-        model.step()
-        population_sizes.append(len(model.agents))
-        concentration_history.append(model.drug_conc)
-
-    all_populations_with_drug[run, :] = population_sizes
-
-    # Store drug concentrations from first run
-    if run == 0:
-        drug_concentrations = concentration_history
-
-# Compute statistics
-mean_no_drug = all_populations_no_drug.mean(axis=0)
-std_no_drug = all_populations_no_drug.std(axis=0)
-mean_with_drug = all_populations_with_drug.mean(axis=0)
-std_with_drug = all_populations_with_drug.std(axis=0)
-
-
-
-
-
-
-
-
-
-# Time array for plotting
 time = np.arange(steps) * dt
 
+def run_abm_for_schedule(schedule, alpha_val):
+    all_counts = np.zeros((n_runs, steps), dtype=float)
+    conc_trace = None
+    for r in range(n_runs):
+        m = TumourModel(
+            initial_cells,
+            birth_rate,
+            death_rate,
+            dt,
+            drug_schedule=schedule.copy(),
+            alpha=alpha_val,
+            hill_params=hill_params,
+        )
+        counts = []
+        concs = []
+        for _ in range(steps):
+            m.step()
+            counts.append(len(m.agents))
+            concs.append(m.drug_conc)
+        all_counts[r] = counts
+        if r == 0:
+            conc_trace = np.array(concs, dtype=float)
+    mean = all_counts.mean(axis=0)
+    std = all_counts.std(axis=0)
+    return mean, std, conc_trace
 
-# -------- Deterministic (config-driven) curves for overlay --------
-N_det, conc_det = analytic_population_with_pk(
-    time, initial_cells, birth_rate, death_rate, drug_schedule, alpha, hill_params
-)
-N_no_drug_det = analytic_population_no_drug(time, initial_cells, birth_rate, death_rate)
+# Run scenarios (no baseline)
+results = []
+for sc in scenarios:
+    mean_abm, std_abm, conc_abm = run_abm_for_schedule(sc["schedule"], sc["alpha"])
+    N_det, conc_det = analytic_population_with_pk(
+        time, initial_cells, birth_rate, death_rate, sc["schedule"], sc["alpha"], hill_params
+    )
+    results.append({
+        "name": sc["name"],
+        "alpha": sc["alpha"],
+        "schedule": sc["schedule"],
+        "mean": mean_abm,
+        "std": std_abm,
+        "conc_abm": conc_abm,
+        "N_det": N_det,
+        "conc_det": conc_det,
+    })
 
 # ========== PLOTTING ==========
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+scenario_palette = [
+    "tab:orange","tab:green","tab:red","tab:purple","tab:brown",
+    "tab:pink","tab:gray","tab:olive","tab:cyan"
+]
 
-# Plot 1: Tumour cell populations
-ax1.plot(time, mean_no_drug, color="blue", label="No Drug - ABM Mean", linewidth=2)
-ax1.fill_between(
-    time,
-    mean_no_drug - std_no_drug,
-    mean_no_drug + std_no_drug,
-    color="blue",
-    alpha=0.2,
-    label="No Drug - ±1 Std Dev",
-)
-ax1.plot(time, mean_with_drug, "r-", label="With Drug - ABM Mean", linewidth=2)
-ax1.fill_between(
-    time,
-    mean_with_drug - std_with_drug,
-    mean_with_drug + std_with_drug,
-    color="red",
-    alpha=0.2,
-    label="With Drug - ±1 Std Dev",
-)
-# Overlays
-ax1.plot(time, N_no_drug_det, color="black", linestyle="--", linewidth=2, alpha=0.9, label="Analytic (no drug)")
-ax1.plot(time, N_det, "k--", linewidth=2, label="Analytic (drug)")
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 10), sharex=False)
 
-# Mark drug administration times
-for amount, dose_time in drug_schedule:
-    ax1.axvline(x=dose_time, color="gray", linestyle="--", alpha=0.7)
-    ax1.text(
-        dose_time,
-        ax1.get_ylim()[1] * 0.95,
-        f"Dose: {amount}",
-        rotation=90,
-        va="top",
-        ha="right",
-        fontsize=8,
-    )
+# Population comparison (only drug schedules)
+for i, res in enumerate(results):
+    col = scenario_palette[i % len(scenario_palette)]
+    ax1.plot(time, res["mean"], color=col, lw=2, label=f'{res["name"]} - ABM mean')
+    ax1.fill_between(time, res["mean"] - res["std"], res["mean"] + res["std"], color=col, alpha=0.10)
+    ax1.plot(time, res["N_det"], color=col, ls="--", lw=2, alpha=0.9, label=f'{res["name"]} - Analytic')
+    for amt, dose_t in res["schedule"]:
+        ax1.axvline(dose_t, color=col, ls=":", alpha=0.3)
 
-ax1.set_ylabel("Number of cells")
-ax1.set_title("Tumour Cell Population Dynamics with Bolus Dosing")
-ax1.legend()
+ax1.set_ylabel("Cells")
+ax1.set_title("Tumour population: ABM vs Analytic (drug schedules)")
 ax1.grid(True, alpha=0.3)
+ax1.legend(ncol=2, fontsize=9)
 
-# Plot 2: Drug concentration
-ax2.plot(time, drug_concentrations, "g-", label="Drug Concentration (ABM)", linewidth=2)
-# Overlay deterministic PK on same axes
-ax2.plot(time, conc_det, "k--", linewidth=2, label="Drug Concentration (Deterministic)")
-
-# Mark drug administration times
-for amount, dose_time in drug_schedule:
-    ax2.axvline(x=dose_time, color="gray", linestyle="--", alpha=0.7)
-    ax2.text(
-        dose_time,
-        ax2.get_ylim()[1] * 0.9,
-        f"Dose: {amount}",
-        rotation=90,
-        va="top",
-        ha="right",
-        fontsize=8,
-    )
+# PK comparison (deterministic)
+for i, res in enumerate(results):
+    col = scenario_palette[i % len(scenario_palette)]
+    ax2.plot(time, res["conc_det"], color=col, lw=2, label=f'{res["name"]} (α={res["alpha"]})')
 
 ax2.set_xlabel("Time")
-ax2.set_ylabel("Drug Concentration")
-ax2.set_title("PK Drug Concentration Profile")
-ax2.legend()
+ax2.set_ylabel("Drug concentration")
+ax2.set_title("PK profiles (drug schedules)")
 ax2.grid(True, alpha=0.3)
+ax2.legend(ncol=2, fontsize=9)
 
 plt.tight_layout()
 plt.show()
 
-# Print diagnostic information
-print(f"\nModel Parameters:")
-print(f"Initial cells: {initial_cells}")
-print(f"Birth rate: {birth_rate}, Death rate: {death_rate}")
-print(f"PK decay rate (alpha): {alpha}")  # fixed to use config alpha
-print(f"Growth rate without drug: {birth_rate - death_rate:.3f}")
-print(
-    f"Expected doubling time without drug: {np.log(2)/(birth_rate - death_rate):.2f} time units"
-)
+print("\nSchedules compared:")
+for res in results:
+    print(f'- {res["name"]}: doses={res["schedule"]}, alpha={res["alpha"]}')
+    print(f'  Final ABM: {res["mean"][-1]:.0f}, Analytic: {res["N_det"][-1]:.0f}')
 
-
-# Final populations
-final_abm_no_drug = mean_no_drug[-1]
-final_abm_with_drug = mean_with_drug[-1]
-
-print(f"\nFinal populations:")
-print(f"No Drug: {final_abm_no_drug:.0f} cells")
-print(f"With Drug: {final_abm_with_drug:.0f} cells")
-print(f"Tumour suppression: {(1 - final_abm_with_drug/final_abm_no_drug)*100:.1f}%")
-
-# Show dosing schedule
-print(f"\nDosing schedule:")
-for i, (amount, time) in enumerate(drug_schedule):
-    print(f"  Dose {i+1}: {amount} at time {time}")
