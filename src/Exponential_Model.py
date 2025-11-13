@@ -42,9 +42,10 @@ class TumourCell(Agent):
         self.p_death = model.p_death
 
     def step(self):
-        if np.random.rand() < self.model.p_birth:
+        r = np.random.rand()
+        if r < self.model.p_birth:
             TumourCell(self.model)
-        elif np.random.rand() < self.model.p_death:
+        elif r < self.model.p_birth + self.model.p_death:
             self.model.agents.remove(self)
 
 
