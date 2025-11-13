@@ -2,18 +2,15 @@ from mesa import Agent, Model
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 """
 Agent-based birth–death tumour model with optional drug effect.
 
-A compact stochastic ABM where each tumour cell samples independent birth and
-death events each timestep. The model supports an external, discrete drug
-schedule that instantaneously sets a drug concentration for specified
-intervals. Drug effect on proliferation is modelled with a Hill-type
-inhibition function.
-
-Flexible bolus drug scheduling is allowed, and PK effects have been added.
-
+Pharmacology:
+- Drug is administered as bolus doses at specific times and follows
+  first-order decay with rate alpha (PK).
+- Drug action increases death rate: the effective death rate is death_rate + kill_rate(Conc), 
+  where kill_rate(Conc) is a Hill function of the instantaneous concentration Conc(t).
+- The birth rate is unaffected by the drug.
 """
 
 
@@ -33,7 +30,6 @@ class TumourCell(Agent):
         self.p_death = model.p_death
 
     def step(self):
-        """Sample birth and death events for each cell independently to determine cell behaviour."""
         if np.random.rand() < self.model.p_birth:
             TumourCell(self.model)
         if np.random.rand() < self.model.p_death:
@@ -45,24 +41,26 @@ class TumourModel(Model):
     Responsibilities:
     - Convert continuous birth_rate/death_rate to per-step probabilities using
       p = 1 - exp(-rate * dt).
-    - Maintain an optional drug_schedule (list of (start_time, duration, conc))
-    - Compute drug inhibition using a Hill function
-      and reduce the effective death rate multiplicatively by Hill_multiplier.
+    - Track and update drug concentration based on bolus dosing schedule and
+      first-order decay.
+    - Compute drug induced kill via a Hill function
     - Advance time and run agent steps in randomised order.
-
 
     Attributes:
         birth_rate (float): continuous-time birth rate (per unit time).
-        death_rate (float): continuous-time death rate (per unit time).
+        death_rate (float): continuous-time baseline death rate (per unit time).
         dt (float): timestep size used to convert continuous rates to per-step probabilities.
-        p_birth (float): current per-step birth probability (updated when drug is present).
-        p_death (float): per-step death probability (derived from death_rate).
-        drug_schedule (list): list of (amount, time) tuples for bolus dosing.
+        p_birth (float): current per-step birth probability (drug does not affect birth).
+        p_death (float): current per-step death probability (from effective death rate).
+        drug_schedule (list[tuple[float, float]]): bolus doses as (amount, time).
         drug_conc (float): current drug concentration.
-        time (float): model time (advances by dt on each step).
-        E0, E1, C, n: parameters for the Hill function.
-        alpha (float): drug decay rate (PK).
-
+        time (float): simulation time (advances by dt each step).
+        E0, E1, C, n: Hill parameters for kill_rate(C):
+            - E0: baseline kill rate at zero concentration.
+            - E1: maximal kill rate at saturating concentration.
+            - C: EC50 (half-maximal concentration).
+            - n: Hill coefficient (steepness).
+        alpha (float): first-order PK decay rate for the drug.
     """
 
     def __init__(
@@ -87,28 +85,17 @@ class TumourModel(Model):
         self.alpha = alpha
         self.administered_doses = []
 
-        self.E0 = 1.0  # Baseline multiplier for death rate (no drug effect)
-        self.E1 = (
-            2.0  # Maximum multiplier for death rate under drug (e.g. up to 3x increase)
-        )
-        self.C = 1.0  # EC50 - concentration for half-maximal effect
-        self.n = 2.0  # Hill coefficient
+        self.E0 = 0.0
+        self.E1 = 0.6
+        self.C = 1.0
+        self.n = 2.0
 
     def pk_dynamics(self, current_time):
         """
-        Calculate total drug concentration from all administered doses.
-
-        For each dose in administered_doses, calculates:
-        concentration = amount * exp(-alpha * (current_time - administration_time))
-
-        Then sums all active doses to get total concentration.
-
-        Args:
-            current_time (float): current simulation time
-
-        Returns:
-            float: total drug concentration from all active doses
+        Compute total drug concentration as the sum of exponentials from all
+        administered bolus doses with first-order decay
         """
+
         total_conc = 0.0
 
         active_doses = []
@@ -137,22 +124,19 @@ class TumourModel(Model):
             self.drug_schedule.pop(i)
 
     def hill_equation(self, drug_conc=0.0):
-        """Calculate death-rate multiplier using Hill equation:
+        """Calculate drug-induced cell death using the Hill equation:
         H(x) = E0 + (x^n (E1 - E0)) / (x^n + C^n)
-        Returns a multiplier (>= E0) that should be applied to the baseline death rate.
-        E1-E0: maximum increase in death rate due to drug.
         """
         if drug_conc <= 0:
             return self.E0
 
-        Hill_multiplier = self.E0 + (drug_conc**self.n * (self.E1 - self.E0)) / (
+        kill_rate = self.E0 + (drug_conc**self.n * (self.E1 - self.E0)) / (
             drug_conc**self.n + self.C**self.n
         )
-
-        return Hill_multiplier
+        return kill_rate
 
     def update_drug_concentration(self):
-        """Set drug_conc according to the schedule, then advance model time by dt."""
+        """Update drug concentration based on dosing schedule and PK dynamics."""
         self.check_drug_schedule(self.time)
         self.drug_conc = self.pk_dynamics(self.time)
 
@@ -163,8 +147,8 @@ class TumourModel(Model):
 
         Workflow:
         1. Update the drug concentration and model time.
-        2. If drug is present, compute death-rate multiplier via hill_equation and increase
-           the effective death rate: effective_death_rate = death_rate * Hill_multiplier.
+        2. If drug is present, drug induced death via hill_equation and increase
+           the effective death rate: effective_death_rate = death_rate + kill_rate.
            Update self.p_death accordingly.
         3. Otherwise restore p_death from the baseline death_rate.
         4. Always keep p_birth at baseline (drug affects death only).
@@ -177,8 +161,8 @@ class TumourModel(Model):
         self.p_birth = 1 - np.exp(-self.birth_rate * self.dt)
 
         if current_drug_conc > 0:
-            Hill_multiplier = self.hill_equation(current_drug_conc)
-            effective_death_rate = self.death_rate * Hill_multiplier
+            kill_rate = self.hill_equation(current_drug_conc)
+            effective_death_rate = self.death_rate + kill_rate
             self.p_death = 1 - np.exp(-effective_death_rate * self.dt)
         else:
             self.p_death = 1 - np.exp(-self.death_rate * self.dt)
@@ -192,14 +176,14 @@ initial_cells = 1000
 birth_rate = 0.2
 death_rate = 0.1
 dt = 0.1
-steps = 200  # Increased to see more dynamics
+steps = 200
 T = steps * dt
-n_runs = 10  # Reduced for faster testing
+n_runs = 10
 
 # Drug schedule: list of (amount, time) for bolus dosing
 drug_schedule = [
-    (10.0, 0.0),  
-    (10.0, 10.0),  
+    (10.0, 0.0),
+    (10.0, 10.0),
 ]
 
 # Run simulations with and without drug for comparison
