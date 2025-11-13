@@ -1,0 +1,25 @@
+{
+  "simulation": {
+    "initial_cells": 1000,
+    "birth_rate": 0.2,
+    "death_rate": 0.1,
+    "dt": 0.1,
+    "steps": 200,
+    "n_runs": 10
+  },
+
+  "drug": {
+    "alpha": 0.5,
+    "schedule": [
+      [10.0, 0.0],
+      [10.0, 10.0]
+    ]
+  },
+
+  "hill_parameters": {
+    "E0": 0.0,
+    "E1": 0.6,
+    "C": 1.0,
+    "n": 2.0
+  }
+}

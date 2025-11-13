@@ -1,11 +1,23 @@
 from mesa import Agent, Model
 import numpy as np
 import matplotlib.pyplot as plt
+import json
+from pathlib import Path
+
+# Load parameters from JSON file
+CONFIG_PATH = Path(__file__).parent / "config.json"
+with open(CONFIG_PATH, "r") as f:
+    config = json.load(f)
+
+sim_params = config["simulation"]
+drug_params = config["drug"]
+hill_params = config["hill_parameters"]
+
 
 """
 Agent-based birth–death tumour model with optional drug effect.
 
-Pharmacology:
+Pharmacology:ß
 - Drug is administered as bolus doses at specific times and follows
   first-order decay with rate alpha (PK).
 - Drug action increases death rate: the effective death rate is death_rate + kill_rate(Conc), 
@@ -64,7 +76,14 @@ class TumourModel(Model):
     """
 
     def __init__(
-        self, initial_cells, birth_rate, death_rate, dt, drug_schedule=None, alpha=0.5
+        self,
+        initial_cells,
+        birth_rate,
+        death_rate,
+        dt,
+        drug_schedule=None,
+        alpha=0.5,
+        hill_params=None,
     ):
         super().__init__(seed=None)
 
@@ -75,7 +94,7 @@ class TumourModel(Model):
         self.p_death = 1 - np.exp(-death_rate * dt)
 
         # create initial population
-        for i in range(initial_cells):
+        for _ in range(initial_cells):
             TumourCell(self)
 
         # Drug parameters
@@ -85,10 +104,12 @@ class TumourModel(Model):
         self.alpha = alpha
         self.administered_doses = []
 
-        self.E0 = 0.0
-        self.E1 = 0.6
-        self.C = 1.0
-        self.n = 2.0
+        self.E0, self.E1, self.C, self.n = (
+            hill_params["E0"],
+            hill_params["E1"],
+            hill_params["C"],
+            hill_params["n"],
+        )
 
     def pk_dynamics(self, current_time):
         """
@@ -171,20 +192,19 @@ class TumourModel(Model):
 
 
 # -------------- Simulation and Plotting Code --------------
+
 # Define Parameters
-initial_cells = 1000
-birth_rate = 0.2
-death_rate = 0.1
-dt = 0.1
-steps = 200
+initial_cells = sim_params["initial_cells"]
+birth_rate = sim_params["birth_rate"]
+death_rate = sim_params["death_rate"]
+dt = sim_params["dt"]
+steps = sim_params["steps"]
 T = steps * dt
-n_runs = 10
+n_runs = sim_params["n_runs"]
 
 # Drug schedule: list of (amount, time) for bolus dosing
-drug_schedule = [
-    (10.0, 0.0),
-    (10.0, 10.0),
-]
+drug_schedule = [tuple(d) for d in drug_params["schedule"]]  # list of (amount, time)
+alpha = drug_params["alpha"]
 
 # Run simulations with and without drug for comparison
 all_populations_no_drug = np.zeros((n_runs, steps))
@@ -195,7 +215,15 @@ drug_concentrations = []
 
 print("Running simulations without drug...")
 for run in range(n_runs):
-    model = TumourModel(initial_cells, birth_rate, death_rate, dt)
+    model = TumourModel(
+        initial_cells,
+        birth_rate,
+        death_rate,
+        dt,
+        drug_schedule=[],
+        alpha=alpha,
+        hill_params=hill_params,
+    )
     population_sizes = []
     for step in range(steps):
         model.step()
@@ -205,7 +233,13 @@ for run in range(n_runs):
 print("Running simulations with drug...")
 for run in range(n_runs):
     model = TumourModel(
-        initial_cells, birth_rate, death_rate, dt, drug_schedule=drug_schedule.copy()
+        initial_cells,
+        birth_rate,
+        death_rate,
+        dt,
+        drug_schedule=drug_schedule.copy(),
+        alpha=alpha,
+        hill_params=hill_params,
     )
     population_sizes = []
     concentration_history = []
