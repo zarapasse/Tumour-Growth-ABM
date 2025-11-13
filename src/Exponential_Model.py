@@ -17,7 +17,7 @@ hill_params = config["hill_parameters"]
 """
 Agent-based birth–death tumour model with optional drug effect.
 
-Pharmacology:ß
+Pharmacology:
 - Drug is administered as bolus doses at specific times and follows
   first-order decay with rate alpha (PK).
 - Drug action increases death rate: the effective death rate is death_rate + kill_rate(Conc), 
@@ -190,6 +190,48 @@ class TumourModel(Model):
 
         self.agents.shuffle_do("step")
 
+# Analytical deterministic model for comparison
+def hill_effect(x, n, C, E0=0.0, E1=0.5):
+    return E0 + (x**n * (E1 - E0)) / (x**n + C**n + 1e-12)
+
+def pk_concentration_series(t, schedule, alpha):
+    conc = np.zeros_like(t, dtype=float)
+    for amount, t_dose in schedule:
+        mask = t >= t_dose
+        conc[mask] += amount * np.exp(-alpha * (t[mask] - t_dose))
+    return conc
+
+def analytic_population_with_pk(time, N0, birth_rate, death_rate, schedule, alpha, hp):
+    conc = pk_concentration_series(time, schedule, alpha)
+    H = hill_effect(conc, hp["n"], hp["C"], hp["E0"], hp["E1"])
+    g = birth_rate - (death_rate + H)
+    N = np.zeros_like(time, dtype=float)
+    N[0] = N0
+    for i in range(1, len(time)):
+        dt_step = time[i] - time[i-1]
+        N[i] = N[i-1] * np.exp(g[i-1] * dt_step)  # left-Riemann, consistent with ABM stepping
+    return N, conc
+
+def analytic_population_no_drug(time, N0, birth_rate, death_rate):
+    """Closed-form exponential growth/decay with no drug."""
+    return N0 * np.exp((birth_rate - death_rate) * time)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # -------------- Simulation and Plotting Code --------------
 
@@ -260,8 +302,23 @@ std_no_drug = all_populations_no_drug.std(axis=0)
 mean_with_drug = all_populations_with_drug.mean(axis=0)
 std_with_drug = all_populations_with_drug.std(axis=0)
 
+
+
+
+
+
+
+
+
 # Time array for plotting
 time = np.arange(steps) * dt
+
+
+# -------- Deterministic (config-driven) curves for overlay --------
+N_det, conc_det = analytic_population_with_pk(
+    time, initial_cells, birth_rate, death_rate, drug_schedule, alpha, hill_params
+)
+N_no_drug_det = analytic_population_no_drug(time, initial_cells, birth_rate, death_rate)
 
 # ========== PLOTTING ==========
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
@@ -285,6 +342,9 @@ ax1.fill_between(
     alpha=0.2,
     label="With Drug - ±1 Std Dev",
 )
+# Overlays
+ax1.plot(time, N_no_drug_det, "b--", linewidth=2, alpha=0.85, label="Analytic (no drug)")
+ax1.plot(time, N_det, "k--", linewidth=2, label="Deterministic (with PK + Hill)")
 
 # Mark drug administration times
 for amount, dose_time in drug_schedule:
@@ -305,7 +365,9 @@ ax1.legend()
 ax1.grid(True, alpha=0.3)
 
 # Plot 2: Drug concentration
-ax2.plot(time, drug_concentrations, "g-", label="Drug Concentration", linewidth=2)
+ax2.plot(time, drug_concentrations, "g-", label="Drug Concentration (ABM)", linewidth=2)
+# Overlay deterministic PK on same axes
+ax2.plot(time, conc_det, "k--", linewidth=2, label="Drug Concentration (Deterministic)")
 
 # Mark drug administration times
 for amount, dose_time in drug_schedule:
@@ -324,7 +386,7 @@ ax2.set_xlabel("Time")
 ax2.set_ylabel("Drug Concentration")
 ax2.set_title("PK Drug Concentration Profile")
 ax2.legend()
-ax2.grid(True, alpha=0.3)
+ax2.grid(True, alpha=alpha)
 
 plt.tight_layout()
 plt.show()
@@ -333,11 +395,12 @@ plt.show()
 print(f"\nModel Parameters:")
 print(f"Initial cells: {initial_cells}")
 print(f"Birth rate: {birth_rate}, Death rate: {death_rate}")
-print(f"PK decay rate (alpha): {0.1}")
+print(f"PK decay rate (alpha): {alpha}")  # fixed to use config alpha
 print(f"Growth rate without drug: {birth_rate - death_rate:.3f}")
 print(
     f"Expected doubling time without drug: {np.log(2)/(birth_rate - death_rate):.2f} time units"
 )
+
 
 # Final populations
 final_abm_no_drug = mean_no_drug[-1]
