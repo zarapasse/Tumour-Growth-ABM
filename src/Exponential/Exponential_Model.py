@@ -71,8 +71,8 @@ class TumourModel(Model):
         birth_rate,
         death_rate,
         dt,
+        alpha,
         drug_schedule=None,
-        alpha=0.5,
         hill_params=None,
     ):
         super().__init__(seed=None)
