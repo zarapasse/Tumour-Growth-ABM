@@ -21,15 +21,15 @@ do_fragility_test = True
 if do_fragility_test:
     print("Running fragility test scenarios...")
 
-    total_dose = 10
-    n_doses = 2
-    n_cycles = 2
-    sigma = 5
+    total_dose_per_cycle = 5
+    n_doses_per_cycle = 2
+    n_cycles = 3
+    sigma = 2.5      # deviation from mean dose for uneven schedule
     cycle_length = 10
     alpha_val = 0.5
 
     scenarios = make_fragility_test_scenarios(
-        total_dose, n_doses, n_cycles, sigma, cycle_length, alpha_val
+        total_dose_per_cycle, n_doses_per_cycle, n_cycles, sigma, cycle_length, alpha_val
     )
     is_fragility = True
 else:
