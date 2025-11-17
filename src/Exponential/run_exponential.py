@@ -9,7 +9,6 @@ from utils import (
     process_config,
     analytic_population_with_pk,
     run_abm,
-    calculate_fragility,
 )
 
 # Load parameters from JSON file
@@ -22,15 +21,15 @@ do_fragility_test = True
 if do_fragility_test:
     print("Running fragility test scenarios...")
 
-    total_dose = 20
+    total_dose = 10
     n_doses = 2
     n_cycles = 2
-    epsilon = 0.5
+    sigma = 5
     cycle_length = 10
     alpha_val = 0.5
 
     scenarios = make_fragility_test_scenarios(
-        total_dose, n_doses, n_cycles, epsilon, cycle_length, alpha_val
+        total_dose, n_doses, n_cycles, sigma, cycle_length, alpha_val
     )
     is_fragility = True
 else:

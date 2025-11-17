@@ -32,7 +32,7 @@ def process_scenarios_config(config):
 
 # Create schedules for testing multiple cycles
 
-def make_fragility_test_scenarios(total_dose, n_doses, n_cycles, epsilon, cycle_length, alpha):
+def make_fragility_test_scenarios(total_dose, n_doses, n_cycles, sigma, cycle_length, alpha):
     """
     Create two ABM scenarios for fragility analysis: even and uneven schedules.
 
@@ -40,32 +40,46 @@ def make_fragility_test_scenarios(total_dose, n_doses, n_cycles, epsilon, cycle_
         total_dose (float): total dose per cycle
         n_doses (int): number of doses per cycle
         n_cycles (int): number of repeated cycles
-        epsilon (float): unevenness factor for odd schedule [0,1)
+        sigma (float): additive deviation from mean for uneven schedule (>=0)
         cycle_length (float): length of one cycle (time units)
-        alpha (float): PK decay rate
+        alpha (float): PK decay rate (kept for API compatibility)
 
     Returns:
-        list of dict: two scenario dicts ready for ABM
+        list of dict: two scenario dicts (even and odd/uneven) ready for ABM
     """
+
+    if n_doses <= 0:
+        raise ValueError("n_doses must be >= 1")
+
+    mean_dose = total_dose / n_doses
+    if sigma < 0:
+        raise ValueError("sigma must be non-negative")
+    if sigma > mean_dose:
+        raise ValueError(f"sigma is too large (would produce negative doses). "
+                         f"Require sigma <= mean_dose ({mean_dose}).")
 
     # ---- Even schedule ----
     even_schedule = []
     for c in range(n_cycles):
         cycle_start = c * cycle_length
-        dose_amount = total_dose / n_doses
+        dose_amount = mean_dose
         times = [cycle_start + i * (cycle_length / n_doses) for i in range(n_doses)]
         even_schedule += [(dose_amount, t) for t in times]
 
-    # ---- Uneven / odd schedule ----
+    # ---- Uneven / odd schedule using additive sigma ----
+    # Build deviations that sum to zero: +sigma, -sigma, +sigma, -sigma, ...
+    # If n_doses is odd, set the last deviation to 0 to keep sum exactly zero.
+    deviations = [sigma if i % 2 == 0 else -sigma for i in range(n_doses)]
+    if n_doses % 2 == 1:
+        deviations[-1] = 0.0
+
+    # Scaled doses = mean + deviation (guaranteed non-negative by check above)
     odd_schedule = []
     for c in range(n_cycles):
         cycle_start = c * cycle_length
-        d0 = total_dose / n_doses
-        multipliers = [(1 + epsilon if i % 2 == 0 else 1 - epsilon) for i in range(n_doses)]
-        total_mult = sum(multipliers)
-        scaled_doses = [d0 * m * n_doses / total_mult for m in multipliers]
         times = [cycle_start + i * (cycle_length / n_doses) for i in range(n_doses)]
-        odd_schedule += list(zip(scaled_doses, times))
+        doses = [mean_dose + d for d in deviations]
+        odd_schedule += list(zip(doses, times))
 
     # ---- Package as ABM-ready scenario dicts ----
     scenarios = [
