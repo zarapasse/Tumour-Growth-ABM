@@ -1,7 +1,5 @@
 from mesa import Agent, Model
 import numpy as np
-import json
-from pathlib import Path
 
 """
 Agent-based birth–death tumour model with optional drug effect.
@@ -31,10 +29,9 @@ class TumourCell(Agent):
         self.p_death = model.p_death
 
     def step(self):
-        r = np.random.rand()
-        if r < self.model.p_birth:
+        if np.random.rand() < self.model.p_birth:
             TumourCell(self.model)
-        elif r < self.model.p_birth + self.model.p_death:
+        if np.random.rand() < self.model.p_death:
             self.model.agents.remove(self)
 
 
@@ -92,7 +89,6 @@ class TumourModel(Model):
         self.drug_conc = 0.0
         self.time = 0.0
         self.alpha = alpha
-        self.administered_doses = []
 
         self.E0, self.E1, self.C, self.n = (
             hill_params["E0"],
@@ -103,36 +99,13 @@ class TumourModel(Model):
 
     def pk_dynamics(self, current_time):
         """
-        Compute total drug concentration as the sum of exponentials from all
-        administered bolus doses with first-order decay
+        Compute total drug concentration driectly using exact PK decay at current time.
         """
-
         total_conc = 0.0
-
-        active_doses = []
-        for amount, dose_time in self.administered_doses:
-            time_since_dose = current_time - dose_time
-            if time_since_dose >= 0:
-                dose_conc = amount * np.exp(-self.alpha * time_since_dose)
-                total_conc += dose_conc
-
-                if dose_conc > 0:
-                    active_doses.append((amount, dose_time))
-
-        self.administered_doses = active_doses
+        for amount, dose_time in self.drug_schedule:
+            if current_time >= dose_time:
+                total_conc += amount * np.exp(-self.alpha * (current_time - dose_time))
         return total_conc
-
-    def check_drug_schedule(self, current_time):
-
-        dose_given = []
-        for i, (amount, dose_time) in enumerate(self.drug_schedule):
-            if dose_time <= current_time < dose_time + self.dt:
-                self.administered_doses.append((amount, dose_time))
-                dose_given.append(i)
-                print(f"Administered dose: {amount} at time {current_time:.2f}")
-
-        for i in sorted(dose_given, reverse=True):
-            self.drug_schedule.pop(i)
 
     def hill_equation(self, drug_conc=0.0):
         """Calculate drug-induced cell death using the Hill equation:
@@ -148,9 +121,7 @@ class TumourModel(Model):
 
     def update_drug_concentration(self):
         """Update drug concentration based on dosing schedule and PK dynamics."""
-        self.check_drug_schedule(self.time)
         self.drug_conc = self.pk_dynamics(self.time)
-
         self.time += self.dt
 
     def step(self):
@@ -165,8 +136,9 @@ class TumourModel(Model):
         4. Always keep p_birth at baseline (drug affects death only).
         """
 
-        self.update_drug_concentration()
+
         current_drug_conc = self.drug_conc
+        self.update_drug_concentration()
 
         # baseline p_birth
         self.p_birth = 1 - np.exp(-self.birth_rate * self.dt)
