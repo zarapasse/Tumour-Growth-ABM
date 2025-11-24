@@ -21,12 +21,12 @@ do_fragility_test = True
 if do_fragility_test:
     print("Running fragility test scenarios...")
 
-    total_dose_per_cycle = 5
+    total_dose_per_cycle = 40
     n_doses_per_cycle = 2
-    n_cycles = 3
-    sigma = 2.5      # deviation from mean dose for uneven schedule
-    cycle_length = 10
-    alpha_val = 0.5
+    n_cycles = 4
+    sigma = 20      # deviation from mean dose for uneven schedule
+    cycle_length = 12
+    alpha_val = 1
 
     scenarios = make_fragility_test_scenarios(
         total_dose_per_cycle, n_doses_per_cycle, n_cycles, sigma, cycle_length, alpha_val
@@ -145,15 +145,14 @@ for i, res in enumerate(results):
         color=col,
         ls="--",
         lw=2,
-        alpha=res["alpha"],
+        alpha=0.3,                      #! this is transparency not parameter value
         label=f'{res["name"]} - Analytic',
     )
     for amt, dose_t in res["schedule"]:
-        ax1.axvline(dose_t, color=col, ls=":", alpha=res["alpha"])
-
+        ax1.axvline(dose_t, color=col, ls=":", alpha=0.3)
 ax1.set_ylabel("Cells")
 ax1.set_title("Tumour population: ABM vs Analytic (drug schedules)")
-ax1.grid(True, alpha=res["alpha"])
+ax1.grid(True, alpha=0.3)
 ax1.legend(ncol=2, fontsize=9)
 
 # PK comparison (deterministic)
@@ -170,10 +169,38 @@ for i, res in enumerate(results):
 ax2.set_xlabel("Time")
 ax2.set_ylabel("Drug concentration")
 ax2.set_title("PK profiles (drug schedules)")
-ax2.grid(True, alpha=res["alpha"])
+ax2.grid(True, alpha=0.3)
 ax2.legend(ncol=2, fontsize=9)
 
-plt.tight_layout()
+
+# ----------------- parameter info box ----------------- #
+param_lines = [
+    f"initial_cells: {initial_cells}",
+    f"birth_rate: {birth_rate}",
+    f"death_rate: {death_rate}",
+    f"dt: {dt}, steps: {steps}",
+    f"n_runs: {n_runs}",
+    "Hill parameters:",
+    f"  E0: {hill_params['E0']}",
+    f"  E1: {hill_params['E1']}",
+    f"  C:  {hill_params['C']}",
+    f"  n:  {hill_params['n']}",
+]
+param_text = "\n".join(param_lines)
+
+# reserve a narrow area on the right for the slim info box and draw the text
+plt.tight_layout(rect=(0, 0, 0.88, 1.0))   # leave ~12% on the right for the info box (moved left)
+fig.text(
+    0.855,                # moved left so the box sits just next to the axes
+    0.98,                # start from top so lines flow downward
+    param_text,
+    fontsize=7,          # smaller font to fit the slim box
+    va="top",
+    ha="left",
+    family="monospace",
+    bbox=dict(boxstyle="round", facecolor="white", alpha=0.9, edgecolor="0.8"),
+)
+
 plt.show()
 
 print("\nSchedules compared:")
