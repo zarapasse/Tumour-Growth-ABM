@@ -1,6 +1,7 @@
 import random
 import numpy as np
 from Exponential_Model import TumourModel
+from Exponential_Drug_Resistance import TumourModel as ResistantTumourModel
 
 
 def process_config(config):
@@ -180,6 +181,7 @@ def run_abm(config, scenarios, seed=None, compute_fragility=False):
     for sc in scenarios:
         all_counts = np.zeros((n_runs, steps), dtype=float)
         for r in range(n_runs):
+            print(f"Running scenario '{sc['name']}', run {r+1}/{n_runs}")
             m = TumourModel(
                 initial_cells,
                 birth_rate,
@@ -217,6 +219,72 @@ def run_abm(config, scenarios, seed=None, compute_fragility=False):
     return results
 
 
+def run_abm_for_resistant(config, scenarios, seed=None, compute_fragility=False):
+    """
+    Run ABM for given scenarios. Optionally compute fragility if two scenarios (even/odd) are provided.
+
+    Parameters:
+        config (dict): ABM config
+        scenarios (list of dict): each dict with keys 'name', 'schedule', 'alpha'
+        seed (int, optional): random seed
+        compute_fragility (bool): if True, calculate fragility between first two scenarios
+    Returns:
+        dict: results including mean/std trajectories, optionally fragility
+    """
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
+
+    initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
+
+    mean_trajectories = []
+    std_trajectories = []
+    final_volumes = []
+
+    for sc in scenarios:
+        all_counts = np.zeros((n_runs, steps, 2), dtype=float)
+        for r in range(n_runs):
+            print(f"Running scenario '{sc['name']}', run {r+1}/{n_runs}")
+            m = ResistantTumourModel(
+                initial_cells,
+                birth_rate,
+                death_rate,
+                dt,
+                drug_schedule=sc["schedule"].copy(),
+                alpha=sc["alpha"],
+                hill_params=hill_params,
+                p_mutation=config["simulation"]["p_mutation"]
+            )
+
+            for _ in range(steps):
+                m.step()
+                
+            df = m.datacollector.get_model_vars_dataframe()
+            all_counts[r, :, 0] = df["Sensitive"].values[:steps]
+            all_counts[r, :, 1] = df["Resistant"].values[:steps]
+
+
+
+        mean_trajectories.append(all_counts.mean(axis=0))
+        std_trajectories.append(all_counts.std(axis=0))
+        final_volumes.append(all_counts[:, -1])
+
+    results = {
+        "scenarios": scenarios,
+        "mean_trajectories": mean_trajectories,
+        "std_trajectories": std_trajectories
+    }
+
+    # Compute fragility if requested and we have two schedules
+    if compute_fragility and len(final_volumes) >= 2:
+        frag_per_run = (final_volumes[1] - final_volumes[0]) / initial_cells
+        results["fragility"] = {
+            "per_run": frag_per_run,
+            "mean": frag_per_run.mean(),
+            "std": frag_per_run.std()
+        }
+
+    return results
 
 
 
