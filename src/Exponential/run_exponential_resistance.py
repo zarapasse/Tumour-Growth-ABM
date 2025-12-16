@@ -1,3 +1,12 @@
+"""
+This script runs ABM simulations comparing drug dosing schedules
+in the presence of drug resistance. It generates plots of tumour
+trajectories, composition (sensitive vs resistant), and PK profiles.
+
+Figure explicitly states parameters used for clarity.
+"""
+
+
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 import json
@@ -22,10 +31,19 @@ do_fragility_test = True
 if do_fragility_test:
     print("Running fragility test scenarios...")
 
-    total_dose_per_cycle = 40
+    # total_dose_per_cycle = 20
+    # n_doses_per_cycle = 2
+    # n_cycles = 4
+    # sigma = 10      # deviation from mean dose for uneven schedule
+    # cycle_length = 12
+    # alpha_val = 1
+    
+    #! Hardcoded values for dosing analysis
+    x_bar = 31
     n_doses_per_cycle = 2
+    total_dose_per_cycle = x_bar * n_doses_per_cycle
+    sigma = total_dose_per_cycle / 2      # for holiday example, set sigma
     n_cycles = 4
-    sigma = 20      # deviation from mean dose for uneven schedule
     cycle_length = 12
     alpha_val = 1
 
@@ -87,7 +105,7 @@ else:
     for sc in scenarios:
         abm_out = run_abm_for_resistant(config, [sc], seed=42)
 
-        all_runs = abm_out["all_trajectories"][0]  # shape (n_runs, steps)
+        all_runs = abm_out["all_trajectories"][0] 
         abm_all_runs.append(all_runs)
 
         # Mean & std for plotting

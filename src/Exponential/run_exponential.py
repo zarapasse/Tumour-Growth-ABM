@@ -21,10 +21,20 @@ do_fragility_test = True
 if do_fragility_test:
     print("Running fragility test scenarios...")
 
-    total_dose_per_cycle = 40
+
+#! For general fragility tests, uncomment below and comment out the hardcoded values
+    # total_dose_per_cycle = 40
+    # n_doses_per_cycle = 2
+    # n_cycles = 4
+    # sigma = 20      # deviation from mean dose for uneven schedule
+    # cycle_length = 12
+    # alpha_val = 1
+#! Hardcoded values for dosing analysis
+    x_bar = 31
     n_doses_per_cycle = 2
+    total_dose_per_cycle = x_bar * n_doses_per_cycle
+    sigma = total_dose_per_cycle / 2      # for holiday example, set sigma
     n_cycles = 4
-    sigma = 20      # deviation from mean dose for uneven schedule
     cycle_length = 12
     alpha_val = 1
 
