@@ -1,5 +1,6 @@
 import numpy as np
 from Logistic_Drug_Model import TumourModel
+from Logistic_Drug_Resistance import TumourResistantModel
 from scipy.optimize import curve_fit
 
 
@@ -242,3 +243,163 @@ def deterministic_pk(time, schedule, alpha):
         conc[mask] += amount * np.exp(-alpha * (time[mask] - t_dose))
 
     return conc
+
+
+def run_abm_logistic_resistant(config, scenarios, seed=1, compute_fragility=False):
+    """
+    Run the energy-based logistic ABM with resistance under multiple dosing scenarios.
+
+    Returns a dict with keys:
+        - mean_trajectories      : list of (steps, 2) arrays [Sensitive, Resistant]
+        - std_trajectories       : list of (steps, 2) arrays
+        - total_population       : list of dicts {mean, std, all}
+        - resistant_fraction    : list of dicts {mean, std, all}
+        - all_trajectories      : list of dicts with raw per-run trajectories
+        - fragility              : (optional) per-run and mean fragility
+    """
+    np.random.seed(seed)
+
+    sim = config["simulation"]
+
+    # ------------------ parameters ------------------ #
+    initial_cells     = sim["initial_cells"]
+    birth_rate        = sim["birth_rate"]
+    death_rate        = sim["death_rate"]
+    dt                = sim["dt"]
+    steps             = sim["steps"]
+    n_runs            = sim["n_runs"]
+    p_mutation        = sim["p_mutation"]
+
+    initial_resources = sim["initial_resources"]
+    resource_influx   = sim["resource_influx"]
+    energy_capacity   = sim["energy_capacity"]
+
+    hill_params = config["hill_parameters"]
+
+    # ------------------ outputs ------------------ #
+    mean_trajectories = []
+    std_trajectories  = []
+    total_population  = []
+    resistant_fraction = []
+    all_trajectories  = []
+
+    # for fragility
+    scenario_final_sizes = []
+
+    # ======================================================
+    #               Loop over dosing scenarios
+    # ======================================================
+    for sc in scenarios:
+
+        schedule = sc["schedule"]
+        alpha    = sc["alpha"]
+
+        runs_sensitive = []
+        runs_resistant = []
+        runs_total     = []
+        runs_res_frac  = []
+
+        # ------------------ stochastic runs ------------------ #
+        for _ in range(n_runs):
+
+            model = TumourResistantModel(
+                initial_cells     = initial_cells,
+                birth_rate        = birth_rate,
+                death_rate        = death_rate,
+                dt                = dt,
+                initial_resources = initial_resources,
+                resource_influx   = resource_influx,
+                energy_capacity   = energy_capacity,
+                alpha             = alpha,
+                p_mutation        = p_mutation,
+                drug_schedule     = schedule,
+                hill_params       = hill_params,
+            )
+
+            for _ in range(steps):
+                model.step()
+
+            # extract Mesa DataCollector output
+            df = model.datacollector.get_model_vars_dataframe()
+
+            runs_sensitive.append(df["Sensitive"].values)
+            runs_resistant.append(df["Resistant"].values)
+            runs_total.append(df["Total"].values)
+            runs_res_frac.append(df["ResistantFraction"].values)
+
+        # ------------------ convert to arrays ------------------ #
+        runs_sensitive = np.array(runs_sensitive)   # (n_runs, steps)
+        runs_resistant = np.array(runs_resistant)
+        runs_total     = np.array(runs_total)
+        runs_res_frac  = np.array(runs_res_frac)
+
+        # ------------------ statistics ------------------ #
+        mean_sensitive = runs_sensitive.mean(axis=0)
+        std_sensitive  = runs_sensitive.std(axis=0)
+
+        mean_resistant = runs_resistant.mean(axis=0)
+        std_resistant  = runs_resistant.std(axis=0)
+
+        mean_total = runs_total.mean(axis=0)
+        std_total  = runs_total.std(axis=0)
+
+        mean_res_frac = runs_res_frac.mean(axis=0)
+        std_res_frac  = runs_res_frac.std(axis=0)
+
+        # ------------------ store ------------------ #
+        mean_trajectories.append(
+            np.vstack([mean_sensitive, mean_resistant]).T
+        )
+        std_trajectories.append(
+            np.vstack([std_sensitive, std_resistant]).T
+        )
+
+        total_population.append({
+            "mean": mean_total,
+            "std": std_total,
+            "all": runs_total,
+        })
+
+        resistant_fraction.append({
+            "mean": mean_res_frac,
+            "std": std_res_frac,
+            "all": runs_res_frac,
+        })
+
+        all_trajectories.append({
+            "sensitive": runs_sensitive,
+            "resistant": runs_resistant,
+            "total": runs_total,
+            "resistant_fraction": runs_res_frac,
+        })
+
+        scenario_final_sizes.append(runs_total[:, -1])
+
+    # ======================================================
+    #                     Fragility
+    # ======================================================
+    if compute_fragility:
+        if len(scenarios) != 2:
+            raise ValueError("Fragility requires exactly two scenarios.")
+
+        frag = scenario_final_sizes[1] - scenario_final_sizes[0]
+
+        return {
+            "mean_trajectories": mean_trajectories,
+            "std_trajectories": std_trajectories,
+            "total_population": total_population,
+            "resistant_fraction": resistant_fraction,
+            "all_trajectories": all_trajectories,
+            "fragility": {
+                "mean": np.mean(frag),
+                "per_run": frag,
+            },
+        }
+
+    return {
+        "mean_trajectories": mean_trajectories,
+        "std_trajectories": std_trajectories,
+        "total_population": total_population,
+        "resistant_fraction": resistant_fraction,
+        "all_trajectories": all_trajectories,
+    }

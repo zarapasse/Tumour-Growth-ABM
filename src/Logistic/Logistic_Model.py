@@ -1,3 +1,7 @@
+"""
+This script gives the basic logistic ABM with logistic fit and parameter values in a panel on the side.
+"""
+
 from mesa import Agent, Model
 import numpy as np
 import matplotlib.pyplot as plt
@@ -111,8 +115,8 @@ class TumourModel(Model):
         self.resources = initial_resources
         self.resource_influx = resource_influx
         self.energy_capacity = energy_capacity
-        self.division_cost = self.energy_capacity * 0.1
-        self.maintenance_cost = self.energy_capacity * 0.01
+        self.division_cost = self.energy_capacity * 0.3
+        self.maintenance_cost = self.energy_capacity * 0.02
         self.division_threshold = self.energy_capacity * 0.5
 
         # convert continuous rates to per-step probabilities
@@ -140,9 +144,14 @@ class TumourModel(Model):
 
 # ------------------- Parameters ------------------- #
 timesteps = 500
-n_runs = 1000  # number of independent simulations
-initial_cells = 65
+n_runs = 500  # number of independent simulations
+initial_cells = 10
 dt = 0.1  # timestep duration
+birth_rate = 0.6  # per unit time
+death_rate = 0.1  # per unit time
+initial_resources = 0
+resource_influx = 100
+energy_capacity = 10
 
 # ------------------- Run Multiple Simulations ------------------- #
 all_cell_counts = []
@@ -151,12 +160,12 @@ all_resources = []
 for run in range(n_runs):
     model = TumourModel(
         initial_cells=initial_cells,
-        birth_rate=0.2,
-        death_rate=0.1,
+        birth_rate=birth_rate,
+        death_rate=death_rate,
         dt=dt,
-        initial_resources=100,
-        resource_influx=10,
-        energy_capacity=10,
+        initial_resources=initial_resources,
+        resource_influx=resource_influx,
+        energy_capacity=energy_capacity,
     )
 
     cell_counts = []
@@ -192,7 +201,6 @@ plt.fill_between(
 )
 
 # ------------------- Logistic fit ------------------- #
-
 
 def logistic_function(t, K, r, N0):
     """Standard logistic growth equation.
@@ -231,14 +239,77 @@ def fit_logistic_direct(t, N):
     except:
         return None, None, None, None
 
+# ------------------- Plot ------------------- #
+fig, ax = plt.subplots(figsize=(10, 6))
+t = np.arange(timesteps) * dt
 
+# Cell counts
+ax.plot(t, mean_cells, lw=2, label="Mean cell count")
+ax.fill_between(
+    t,
+    mean_cells - std_cells,
+    mean_cells + std_cells,
+    alpha=0.25,
+    label="Mean ± SD",
+)
+
+# ------------------- Logistic fit ------------------- #
 K1, r1, N0_1, fit1 = fit_logistic_direct(t, mean_cells)
+ax.plot(t, fit1, "k--", lw=2, label=f"Logistic fit")
 
-plt.plot(t, fit1, "k--", label=f"Logistic Fit: K={K1:.1f}, r={r1:.3f}")
+ax.set_xlabel("Time")
+ax.set_ylabel("Count")
+ax.set_title("Resource-dependent ABM vs Logistic Fit (no drug)")
+ax.legend()
+ax.grid(alpha=0.3)
 
-plt.xlabel("Time")
-plt.ylabel("Count")
-plt.title("Mean ± SD over Multiple Runs with Logistic Fit")
-plt.legend()
-plt.tight_layout()
+# ------------------- Parameter panel (same layout style) ------------------- #
+
+param_lines = [
+    "Simulation parameters",
+    "----------------------",
+    f"timesteps        = {timesteps}",
+    f"dt              = {dt}",
+    f"n_runs          = {n_runs}",
+    f"initial_cells   = {initial_cells}",
+    "",
+    "Model parameters",
+    "----------------------",
+    f"birth_rate       = {birth_rate}",
+    f"death_rate       = {death_rate}",
+    f"initial_resources= {initial_resources}",
+    f"resource_influx  = {resource_influx}",
+    f"energy_capacity  = {energy_capacity}",
+    "",
+    "Logistic fit (mean)",
+    "----------------------",
+    f"K   = {K1:.3g}",
+    f"r   = {r1:.3g}",
+    f"N0  = {N0_1:.3g}",
+]
+
+param_text = "\n".join(param_lines)
+
+# Leave space on the right for the panel 
+plt.tight_layout(rect=(0, 0, 0.82, 1.0))
+
+fig.text(
+    0.84,
+    0.95,
+    param_text,
+    va="top",
+    ha="left",
+    fontsize=8,
+    family="monospace",
+    bbox=dict(
+        boxstyle="round",
+        facecolor="white",
+        edgecolor="0.8",
+        alpha=0.95,
+    ),
+)
+
+plt.tight_layout(rect=(0, 0, 0.82, 1.0))
+plt.savefig("logistic_fit_no_drug.png", dpi=300, bbox_inches="tight")
 plt.show()
+
