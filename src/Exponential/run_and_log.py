@@ -14,7 +14,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
-from Exponential_Model_Complete import TumourModel
+from Exponential_Drug_Resistance import TumourModel
 from utils import process_config, make_fragility_test_scenarios
 
 

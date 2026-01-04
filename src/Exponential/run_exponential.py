@@ -30,7 +30,7 @@ if do_fragility_test:
     # cycle_length = 12
     # alpha_val = 1
 #! Hardcoded values for dosing analysis
-    x_bar = 31
+    x_bar = 20
     n_doses_per_cycle = 2
     total_dose_per_cycle = x_bar * n_doses_per_cycle
     sigma = total_dose_per_cycle / 2      # for holiday example, set sigma
@@ -145,7 +145,7 @@ fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 10), sharex=False)
 # Population comparison (only drug schedules)
 for i, res in enumerate(results):
     col = scenario_palette[i % len(scenario_palette)]
-    ax1.plot(time, res["mean"], color=col, lw=2, label=f'{res["name"]} - ABM mean')
+    ax1.plot(time, res["mean"], color=col, lw=2, label=f'{res["name"]} - ABM')
     ax1.fill_between(
         time, res["mean"] - res["std"], res["mean"] + res["std"], color=col, alpha=0.10
     )
@@ -160,8 +160,9 @@ for i, res in enumerate(results):
     )
     for amt, dose_t in res["schedule"]:
         ax1.axvline(dose_t, color=col, ls=":", alpha=0.3)
-ax1.set_ylabel("Cells")
-ax1.set_title("Tumour population: ABM vs Analytic (drug schedules)")
+ax1.set_xlabel("Time")
+ax1.set_ylabel("Tumour population")
+ax1.set_title("Tumour population: ABM vs Analytic")
 ax1.grid(True, alpha=0.3)
 ax1.legend(ncol=2, fontsize=9)
 
@@ -173,7 +174,7 @@ for i, res in enumerate(results):
         res["conc_det"],
         color=col,
         lw=2,
-        label=f'{res["name"]} (α={res["alpha"]})',
+        label=f'{res["name"]}',
     )
 
 ax2.set_xlabel("Time")
@@ -182,34 +183,59 @@ ax2.set_title("PK profiles (drug schedules)")
 ax2.grid(True, alpha=0.3)
 ax2.legend(ncol=2, fontsize=9)
 
-
-# ----------------- parameter info box ----------------- #
+# ---------------------- Parameter panel ---------------------- #
 param_lines = [
-    f"initial_cells: {initial_cells}",
-    f"birth_rate: {birth_rate}",
-    f"death_rate: {death_rate}",
-    f"dt: {dt}, steps: {steps}",
-    f"n_runs: {n_runs}",
-    "Hill parameters:",
-    f"  E0: {hill_params['E0']}",
-    f"  E1: {hill_params['E1']}",
-    f"  C:  {hill_params['C']}",
-    f"  n:  {hill_params['n']}",
+    "Simulation parameters",
+    "----------------------",
+    f"initial_cells = {initial_cells}",
+    f"birth_rate   = {birth_rate}",
+    f"death_rate   = {death_rate}",
+    f"dt           = {dt}",
+    f"steps        = {steps}",
+    f"n_runs       = {n_runs}",
+    "",
+    "Hill parameters",
+    "--------------",
+    f"E0 = {hill_params['E0']}",
+    f"E1 = {hill_params['E1']}",
+    f"C  = {hill_params['C']}",
+    f"n  = {hill_params['n']}",
 ]
+
+# (Optional) include fragility-test specific params if running that mode
+if do_fragility_test:
+    param_lines += [
+        "",
+        "Schedule parameters",
+        "-------------------",
+        f"x_bar        = {x_bar}",
+        f"sigma        = {sigma}",
+        f"n_cycles     = {n_cycles}",
+        f"cycle_length = {cycle_length}",
+        f"alpha        = {alpha_val}",
+    ]
+
 param_text = "\n".join(param_lines)
 
-# reserve a narrow area on the right for the slim info box and draw the text
-plt.tight_layout(rect=(0, 0, 0.88, 1.0))   # leave ~12% on the right for the info box (moved left)
+plt.tight_layout(rect=(0, 0, 0.82, 1.0))
+
 fig.text(
-    0.855,                # moved left so the box sits just next to the axes
-    0.98,                # start from top so lines flow downward
+    0.84,          # x-position (outside axes)
+    0.95,          # y-position (top-aligned)
     param_text,
-    fontsize=7,          # smaller font to fit the slim box
     va="top",
     ha="left",
+    fontsize=8,
     family="monospace",
-    bbox=dict(boxstyle="round", facecolor="white", alpha=0.9, edgecolor="0.8"),
+    bbox=dict(
+        boxstyle="round",
+        facecolor="white",
+        edgecolor="0.8",
+        alpha=0.95,
+    ),
 )
+
+plt.savefig(Path(__file__).parent / "exponential_trajectory.png", dpi=300)
 
 plt.show()
 
