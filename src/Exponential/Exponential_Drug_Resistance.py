@@ -32,7 +32,10 @@ class TumourCell(Agent):
 
     def step(self):
         if np.random.rand() < self.model.p_birth:
-            if np.random.rand() < self.model.p_mutation:
+            if (
+                self.model.enable_resistance
+                and np.random.rand() < self.model.p_mutation
+            ):
                 ResistantTumourCell(self.model)
 
             else:
@@ -40,17 +43,20 @@ class TumourCell(Agent):
 
         if np.random.rand() < self.model.p_death:
             self.remove()
-            
+
+
 class ResistantTumourCell(TumourCell):
     """A drug-resistant tumour cell that is unaffected by the drug."""
-    
+
     def __init__(self, model):
         super().__init__(model)
         self.cell_type = "resistant"
-        
-        self.p_birth = model.p_birth * 0.8  # resistant cells have a fitness cost 
-        self.p_death = 1 - np.exp(-model.death_rate * model.dt)  # baseline death only (no drug effect)
-        
+
+        self.p_birth = model.p_birth
+        self.p_death = 1 - np.exp(
+            -model.death_rate * model.dt
+        )  # baseline death only (no drug effect)
+
     def step(self):
         if np.random.rand() < self.p_birth:
             ResistantTumourCell(self.model)
@@ -95,15 +101,17 @@ class TumourModel(Model):
         p_mutation,
         drug_schedule=None,
         hill_params=None,
+        enable_resistance=False,
     ):
         super().__init__(seed=None)
+        self.enable_resistance = enable_resistance
 
         self.birth_rate = birth_rate
         self.death_rate = death_rate
         self.dt = dt
         self.p_birth = 1 - np.exp(-birth_rate * dt)
         self.p_death = 1 - np.exp(-death_rate * dt)
-        self.p_mutation = p_mutation            
+        self.p_mutation = p_mutation if enable_resistance else 0.0
 
         # create initial population
         for _ in range(initial_cells):
@@ -121,11 +129,11 @@ class TumourModel(Model):
             hill_params["C"],
             hill_params["n"],
         )
-        
-        
-        #Mesa DataCollector to track populations
+
+        # Mesa DataCollector to track populations
         self.datacollector = DataCollector(
             model_reporters={
+                "Time": lambda m: m.time,
                 "Sensitive": lambda m: sum(
                     1 for a in m.agents if type(a) is TumourCell
                 ),
@@ -140,9 +148,9 @@ class TumourModel(Model):
                 "DrugConc": lambda m: m.drug_conc,
             }
         )
-        
+
         self.datacollector.collect(self)
-        
+
     def pk_dynamics(self, current_time):
         """
         Compute total drug concentration driectly using exact PK decay at current time.
@@ -182,7 +190,6 @@ class TumourModel(Model):
         4. Always keep p_birth at baseline (drug affects death only).
         """
 
-
         current_drug_conc = self.drug_conc
         self.update_drug_concentration()
 
@@ -195,7 +202,6 @@ class TumourModel(Model):
             self.p_death = 1 - np.exp(-effective_death_rate * self.dt)
         else:
             self.p_death = 1 - np.exp(-self.death_rate * self.dt)
-            
 
         self.agents.shuffle_do("step")
         self.datacollector.collect(self)
