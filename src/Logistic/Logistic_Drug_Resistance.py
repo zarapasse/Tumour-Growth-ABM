@@ -140,6 +140,7 @@ class TumourResistantModel(Model):
         hill_params=None,
         drug_schedule=None,
         energy_capacity=10,
+        initial_resistant_fraction=0.0,
     ):
         """
         Initialise the tumour model.
@@ -175,8 +176,12 @@ class TumourResistantModel(Model):
         self.p_death = 1 - np.exp(-death_rate * dt)
 
         # create initial population
-        for _ in range(initial_cells):
+        n_resistant = int(initial_cells * initial_resistant_fraction)
+        n_sensitive = initial_cells - n_resistant
+        for _ in range(n_sensitive):
             TumourCell(self)
+        for _ in range(n_resistant):
+            TumourResistantCell(self)
 
         # Drug parameters
         self.drug_schedule = drug_schedule if drug_schedule is not None else []
