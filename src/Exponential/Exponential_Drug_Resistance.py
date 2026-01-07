@@ -102,6 +102,7 @@ class TumourModel(Model):
         drug_schedule=None,
         hill_params=None,
         enable_resistance=False,
+        initial_resistant_fraction=0.0,
     ):
         super().__init__(seed=None)
         self.enable_resistance = enable_resistance
@@ -114,8 +115,13 @@ class TumourModel(Model):
         self.p_mutation = p_mutation if enable_resistance else 0.0
 
         # create initial population
-        for _ in range(initial_cells):
+        n_resistant = int(initial_cells * initial_resistant_fraction)
+        n_sensitive = initial_cells - n_resistant
+        for _ in range(n_sensitive):
             TumourCell(self)
+        for _ in range(n_resistant):
+            ResistantTumourCell(self)
+            
 
         # Drug parameters
         self.drug_schedule = drug_schedule if drug_schedule is not None else []
