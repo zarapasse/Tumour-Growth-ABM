@@ -1,6 +1,23 @@
 #Want to plot the 4 common general models used in the Introduction section of the paper
+import string
 import numpy as np
 import matplotlib.pyplot as plt
+
+def set_panel_label_and_title(ax, label, title):
+    # Panel label (A) — left
+    ax.text(
+        0.0, 1.02,
+        rf"$\mathbf{{({label})}}$",
+        transform=ax.transAxes,
+        fontsize=12,
+        va="bottom",
+        ha="left"
+    )
+
+    # Title — centred
+    ax.set_title(title, fontsize=12)
+
+
 
 t = np.linspace(0,50,500)
 V_0 = 0.1
@@ -28,20 +45,25 @@ V_bertalanffy = ( alpha_b/beta_b - (alpha_b / beta_b - V_0**(1/3))*np.exp(-beta_
 # Determine common y-axis limit
 V_max = max(V_mendelsohn.max(), V_gompertz.max(), V_logistic.max(), V_bertalanffy.max())
 
+
+
+plt.rcParams["axes.titlepad"] = 6  
+
 # Create 4 subplots
 fig, axs = plt.subplots(1, 4, figsize=(20,5))
 
 models = [V_mendelsohn, V_gompertz, V_logistic, V_bertalanffy]
-titles = ['Mendelsohn', 'Gompertz', 'Logistic', 'Bertalanffy']
-colors = ['blue', 'orange', 'green', 'red']
+titles = ['Mendelsohn', 'Gompertz', 'Logistic', 'von Bertalanffy']
+panel_labels = list(string.ascii_uppercase)  # A, B, C, D
 
-for ax, V, title, color in zip(axs, models, titles, colors):
-    ax.plot(t, V, color=color)
-    ax.set_title(title)
-    ax.set_xlabel('t')
-    ax.set_ylabel('V(t)')
-    ax.set_ylim(0, V_max*1.05)  # slightly larger to avoid touching top
+for i, (ax, V, title) in enumerate(zip(axs, models, titles)):
+    set_panel_label_and_title(ax, panel_labels[i], title)
+    ax.plot(t, V, color="black")
+    ax.set_xlabel("t (days)")
+    ax.set_ylabel("V(cm$^3$)")
+    ax.set_ylim(0, V_max * 1.05)
     ax.grid(True)
 
 plt.tight_layout()
+plt.savefig("misc_analysis/graphs/General_Models_Plot.png", dpi=300)
 plt.show()
