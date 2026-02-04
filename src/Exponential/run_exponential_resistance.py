@@ -39,10 +39,10 @@ if do_fragility_test:
     # alpha_val = 1
     
     #! Hardcoded values for dosing analysis
-    x_bar = 31
+    x_bar = 30
     n_doses_per_cycle = 2
     total_dose_per_cycle = x_bar * n_doses_per_cycle
-    sigma = total_dose_per_cycle / 2      # for holiday example, set sigma
+    sigma = total_dose_per_cycle / 2    
     n_cycles = 4
     cycle_length = 12
     alpha_val = 1
@@ -152,20 +152,18 @@ scenario_palette = [
 n_scenarios_with_resistance = sum(1 for res in results if res["mean"].ndim == 2)
 
 # Create figure with appropriate layout
-fig = plt.figure(figsize=(14, 14))
+fig = plt.figure(figsize=(14, 10))
 
 if n_scenarios_with_resistance > 1:
     # Use GridSpec to create flexible layout
-    gs = gridspec.GridSpec(3, n_scenarios_with_resistance, figure=fig)
+    gs = gridspec.GridSpec(2, n_scenarios_with_resistance, figure=fig, height_ratios=[1, 1])
     ax1 = fig.add_subplot(gs[0, :])  # Top row spans all columns
-    ax2_list = [fig.add_subplot(gs[1, i]) for i in range(n_scenarios_with_resistance)]  # Middle row split
-    ax3 = fig.add_subplot(gs[2, :])  # Bottom row spans all columns
+    ax2_list = [fig.add_subplot(gs[1, i]) for i in range(n_scenarios_with_resistance)]  # Bottom row split
 else:
-    # Standard 3x1 layout
-    gs = gridspec.GridSpec(3, 1, figure=fig)
+    # Standard 2x1 layout
+    gs = gridspec.GridSpec(2, 1, figure=fig, height_ratios=[1, 1])
     ax1 = fig.add_subplot(gs[0, 0])
     ax2_list = [fig.add_subplot(gs[1, 0])]
-    ax3 = fig.add_subplot(gs[2, 0])
 
 # ------------------ 1. Total population vs Analytic ------------------ #
 for i, res in enumerate(results):
@@ -175,7 +173,7 @@ for i, res in enumerate(results):
     abm_mean_total = res["mean"].sum(axis=1) if res["mean"].ndim==2 else res["mean"] 
     abm_std_total = res["std"].sum(axis=1) if res["std"].ndim==2 else res["std"]
     
-    ax1.plot(time, abm_mean_total, color=col, lw=2, label=f'{res["name"]} - ABM mean')
+    ax1.plot(time, abm_mean_total, color=col, lw=2, label=f'{res["name"]} - ABM')
     ax1.fill_between(time, abm_mean_total - abm_std_total, abm_mean_total + abm_std_total,
                      color=col, alpha=0.1)
     
@@ -187,8 +185,8 @@ for i, res in enumerate(results):
     for amt, dose_t in res["schedule"]:
         ax1.axvline(dose_t, color=col, ls=":", alpha=0.3)
 
-ax1.set_ylabel("Cells")
-ax1.set_title("Tumour population: ABM vs Analytic")
+ax1.set_ylabel("Population")
+ax1.set_title("Tumour population: Resistant ABM vs Analytic")
 ax1.grid(True, alpha=0.3)
 ax1.legend(ncol=2, fontsize=9)
 
@@ -211,48 +209,100 @@ if n_scenarios_with_resistance > 0:
 else:
     ax2_list[0].text(0.5, 0.5, "No resistance data available", 
              ha='center', va='center', transform=ax2_list[0].transAxes)
-    ax2_list[0].set_ylabel("Cells")
+    ax2_list[0].set_ylabel("Population")
     ax2_list[0].set_title("Tumour composition")
 
-# ------------------ 3. PK profiles (deterministic) ------------------ #
-for i, res in enumerate(results):
-    col = scenario_palette[i % len(scenario_palette)]
-    ax3.plot(time, res["conc_det"], color=col, lw=2,
-             label=f'{res["name"]} (α={res["alpha"]})')
+# ---------------------- Resistance summary for side panel ---------------------- #
+# (uses ABM mean trajectories; final fraction at last timepoint)
 
-ax3.set_xlabel("Time")
-ax3.set_ylabel("Drug concentration")
-ax3.set_title("PK profiles (drug schedules)")
-ax3.grid(True, alpha=0.3)
-ax3.legend(ncol=2, fontsize=9)
 
-# ----------------- parameter info box ----------------- #
+def time_to_resistance_dominance(time, mean_traj):
+    """
+    Returns the first time t such that Resistant > Sensitive
+    using the ABM mean trajectory.
+
+    If resistance never dominates, returns None.
+    """
+    if mean_traj.ndim != 2:
+        return None
+
+    sens = mean_traj[:, 0]
+    res  = mean_traj[:, 1]
+
+    idx = np.where(res > sens)[0]
+    if len(idx) == 0:
+        return None
+
+    return time[idx[0]]
+
+res_frac_lines = ["", "Resistance summary", "---------------------------"]
+
+for res in results:
+    if res["mean"].ndim == 2:
+        final_sens = float(res["mean"][-1, 0])
+        final_res  = float(res["mean"][-1, 1])
+        final_tot  = final_sens + final_res
+        final_frac = (final_res / final_tot) if final_tot > 0 else 0.0
+
+        res_frac_lines.append(f"{res['name']}:")
+        res_frac_lines.append(f"  Resistance Fraction = {final_frac:.3f}")
+        res_frac_lines.append(f"  Resistant Cells     = {final_res:.0f}")
+    else:
+        res_frac_lines.append(f"{res['name']}: (no resistance split)")
+
+
+
+# ---------------------- Parameter panel ---------------------- #
 param_lines = [
-    f"initial_cells: {initial_cells}",
-    f"birth_rate: {birth_rate}",
-    f"death_rate: {death_rate}",
-    f"dt: {dt}, steps: {steps}",
-    f"n_runs: {n_runs}",
-    "Hill parameters:",
-    f"  E0: {hill_params['E0']}",
-    f"  E1: {hill_params['E1']}",
-    f"  C:  {hill_params['C']}",
-    f"  n:  {hill_params['n']}",
-]
+    "Simulation parameters",
+    "----------------------",
+    f"initial_cells = {initial_cells}",
+    f"birth_rate   = {birth_rate}",
+    f"death_rate   = {death_rate}",
+    f"dt           = {dt}",
+    f"steps        = {steps}",
+    f"n_runs       = {n_runs}",
+    f"p_mutation   = {config['simulation']['p_mutation']}",
+    f"initial_resistant_fraction = {config['simulation']['initial_resistant_fraction']}",
+    "",
+    "Hill parameters",
+    "--------------",
+    f"E0 = {hill_params['E0']}",
+    f"E1 = {hill_params['E1']}",
+    f"C  = {hill_params['C']}",
+    f"n  = {hill_params['n']}",
+    "",
+    "Dosing parameters",
+    "-----------------",
+    f"x_bar            = {x_bar}",
+    f"doses per cycle  = {n_doses_per_cycle}",
+    f"sigma            = {sigma}",
+    f"n_cycles         = {n_cycles}",
+    f"cycle_length     = {cycle_length}",
+    f"alpha            = {alpha_val}",
+]+ res_frac_lines
+
 param_text = "\n".join(param_lines)
 
-plt.tight_layout(rect=(0, 0, 0.88, 1.0))
+plt.tight_layout(rect=(0, 0, 0.82, 1.0))
+
 fig.text(
-    0.855,
-    0.98,
+    0.84,          # x-position (outside axes)
+    0.95,          # y-position (top-aligned)
     param_text,
-    fontsize=7,
     va="top",
     ha="left",
+    fontsize=8,
     family="monospace",
-    bbox=dict(boxstyle="round", facecolor="white", alpha=0.9, edgecolor="0.8"),
+    bbox=dict(
+        boxstyle="round",
+        facecolor="white",
+        edgecolor="0.8",
+        alpha=0.95,
+    ),
 )
-plt.savefig('exponential_resistance_results.png', dpi=300)
+
+plt.savefig('exponential_resistance_seeded.png', dpi=300)
 plt.show()
 
 # ----------------- print summary ----------------- #
@@ -269,5 +319,4 @@ for res in results:
         final_total = res["mean"][-1]
         print(f'- {res["name"]}: doses={len(res["schedule"])} doses, alpha={res["alpha"]}')
         print(f'  Final ABM: {final_total:.0f}, Analytic: {res["N_det"][-1]:.0f}')
-        
-        
+

@@ -253,7 +253,9 @@ def run_abm_for_resistant(config, scenarios, seed=None, compute_fragility=False)
                 drug_schedule=sc["schedule"].copy(),
                 alpha=sc["alpha"],
                 hill_params=hill_params,
-                p_mutation=config["simulation"]["p_mutation"]
+                p_mutation=config["simulation"]["p_mutation"],
+                enable_resistance=True,
+                initial_resistant_fraction=config["simulation"]["initial_resistant_fraction"],
             )
 
             for _ in range(steps):

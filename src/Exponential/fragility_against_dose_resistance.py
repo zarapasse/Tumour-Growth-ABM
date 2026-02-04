@@ -1,5 +1,5 @@
 """
-Fragility vs mean dose x_bar (NO resistance)
+Fragility vs mean dose x_bar (WITH resistance)
 
 This script plots the fragility metric
     F = (V_odd - V_even) / V0
@@ -25,7 +25,7 @@ from utils import (
     make_fragility_test_scenarios,
     process_config,
     analytic_population_with_pk,
-    run_abm,
+    run_abm_for_resistant,
 )
 
 # ----------------- Load config ----------------- #
@@ -37,7 +37,7 @@ initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_
 time = np.arange(steps) * dt
 # ----------------- Sweep settings (edit as needed) ----------------- #
 n_doses_per_cycle = 2
-n_cycles = 4
+n_cycles = 1
 cycle_length = 12
 alpha_val = 1.0
 
@@ -106,7 +106,7 @@ for x_bar in x_bar_values:
     F_det.append((V_odd_det - V_even_det) / float(initial_cells))
 
     # ---------- ABM fragility (no resistance) ----------
-    abm_out = run_abm(config, scenarios, seed=42, compute_fragility=True)
+    abm_out = run_abm_for_resistant(config, scenarios, seed=42, compute_fragility=True)
 
     per_run = np.array(abm_out["fragility"]["per_run"], dtype=float)
     F_abm_mean.append(float(per_run.mean()))
@@ -120,7 +120,7 @@ F_abm_std = np.array(F_abm_std, dtype=float)
 fig, ax = plt.subplots(figsize=(10.5, 6.5))
 
 ax.plot(x_bar_values, F_det, lw=2, label="Deterministic", color='black')
-ax.plot(x_bar_values, F_abm_mean, lw=2, label="ABM mean", color='blue')
+ax.plot(x_bar_values, F_abm_mean, lw=2, label="Resistant ABM mean", color='blue')
 ax.fill_between(
     x_bar_values,
     F_abm_mean - F_abm_std,
@@ -131,9 +131,9 @@ ax.fill_between(
 )
 
 ax.axhline(0.0, lw=1, ls="--")
-ax.set_xlabel(r"Mean dose $\bar{x}$ (mg/L)")
+ax.set_xlabel(r"Mean dose $\bar{x}$")
 ax.set_ylabel(r"Fragility")
-ax.set_title("Fragility vs mean dose (4 cycles)")
+ax.set_title("Fragility vs mean dose for Resistant ABM")
 ax.grid(True, alpha=0.3)
 ax.legend(fontsize=9, ncol=3)
 
@@ -154,6 +154,8 @@ param_lines = [
     f"dt            = {dt}",
     f"steps         = {steps}",
     f"n_runs        = {n_runs}",
+    f"p_mutation    = {config['simulation']['p_mutation']}",
+    f"initial_resistant_fraction = {config['simulation']['initial_resistant_fraction']}",
     "",
     "Hill parameters",
     "----------",
@@ -176,7 +178,7 @@ fig.text(
     bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
 )
 
-outpath = Path(__file__).parent / "Fragility_vs_mean_dose_4_cycles.png"
+outpath = Path(__file__).parent / "Fragility_vs_mean_dose_single_cycle_with_resistance.png"
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
 plt.show()
 

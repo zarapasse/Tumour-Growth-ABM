@@ -43,13 +43,14 @@ N_det = analytic_population_no_drug(
 # ---------------------- Plot ---------------------- #
 fig, ax = plt.subplots(figsize=(10, 6))
 
-ax.plot(time, mean_abm, lw=2, label="Exponential ABM mean")
+ax.plot(time, mean_abm, lw=2, label="ABM mean", color="blue")
 ax.fill_between(
     time,
     mean_abm - std_abm,
     mean_abm + std_abm,
     alpha=0.25,
-    label="Exponential ABM ± SD"
+    label="ABM ± SD",
+    color="blue",
 )
 
 ax.plot(
@@ -57,11 +58,12 @@ ax.plot(
     N_det,
     "k--",
     lw=2,
-    label="Deterministic solution",
+    label="Deterministic",
+    color="black",
 )
 
-ax.set_xlabel("Time")
-ax.set_ylabel("Tumour cells")
+ax.set_xlabel("Time (days)")
+ax.set_ylabel("Tumour population (cells)")
 ax.set_title("Exponential ABM vs deterministic solution (no drug)")
 ax.legend()
 ax.grid(alpha=0.3)
