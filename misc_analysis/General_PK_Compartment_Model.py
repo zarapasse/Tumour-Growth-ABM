@@ -10,22 +10,29 @@ import string
 
 # ---------------- Parameters ---------------- #
 T = 2
-alpha_values = [0.1, 0.3, 0.5]  # alpha values to compare
+alpha_values = [0.1, 0.3, 0.5]
 dose_values = np.linspace(0, 50, 200)
-sigma_values = [7, 9, 11, 13, 15]
+sigma_values = [0, 1, 3, 5, 7]
 dt = 0.01
+V0 = 0.001
 
-V0 = 0.001  # cm^3 (so 0.001 cm^3 = 1 mm^3)
-n = 10
-C = 20
-E0 = 1
-E1 = -1
+mean_dose = 20
 
-plt.rcParams["axes.titlepad"] = 6  # slightly tighter title padding
+# PD (Hill kill)
+n = 3
+C = 25
+K_kill = 3
+
+# tumour intrinsic growth
+k = 0.25
+
+plt.rcParams["axes.titlepad"] = 6  # tighter titles
 
 # ---------------- Helper functions ---------------- #
-def hill_effect(x, n, C):
-    return E0 + (x**n * (E1 - E0)) / (x**n + C**n)
+def gamma_kill(x):
+    # Hill kill function γ(x)
+    x = np.maximum(x, 0.0)  # safety
+    return K_kill * (x**n) / (x**n + C**n)
 
 def simulate_tumor(x_bar, sigma, alpha):
     """
@@ -45,7 +52,8 @@ def simulate_tumor(x_bar, sigma, alpha):
     V = np.zeros_like(t)
     V[0] = V0
     for i in range(1, len(t)):
-        V[i] = V[i - 1] * np.exp(hill_effect(x_t[i - 1], n, C) * dt)
+        g = gamma_kill(x_t[i - 1])
+        V[i] = V[i - 1] * np.exp((k - g) * dt)  # stable exact step
 
     return t, x_t, V
 
@@ -54,12 +62,6 @@ def fragility_function(x_bar, sigma, alpha):
     _, _, V_uneven = simulate_tumor(x_bar, sigma, alpha)
     return (V_uneven[-1] - V_even[-1]) / V0
 
-def compute_hill_curve(alpha):
-    """
-    Visual DIP curve at a fixed time point t=0.1 (as in your previous script).
-    """
-    x_vals = dose_values * np.exp(-alpha * 0.1)
-    return dose_values, hill_effect(x_vals, n, C)
 
 def set_panel_title(ax, label, title):
     # Bold label only, normal title text
@@ -67,7 +69,7 @@ def set_panel_title(ax, label, title):
 
 # ---------------- Plot ---------------- #
 fig = plt.figure(figsize=(20, 12))
-gs_main = gridspec.GridSpec(3, 4, figure=fig, hspace=0.45, wspace=0.3)
+gs_main = gridspec.GridSpec(3, 3, figure=fig, hspace=0.45, wspace=0.3)
 
 panel_labels = list(string.ascii_uppercase)
 label_idx = 0
@@ -75,8 +77,8 @@ label_idx = 0
 for row, alpha in enumerate(alpha_values):
 
     # Compute tumour trajectory and drug concentrations
-    t_even, x_even, v_even = simulate_tumor(x_bar=25, sigma=0, alpha=alpha)
-    t_uneven, x_uneven, v_uneven = simulate_tumor(x_bar=25, sigma=25, alpha=alpha)
+    t_even, x_even, v_even = simulate_tumor(x_bar=mean_dose, sigma=0, alpha=alpha)
+    t_uneven, x_uneven, v_uneven = simulate_tumor(x_bar=mean_dose, sigma=mean_dose / 2, alpha=alpha)
 
     # Compute fragility analysis
     fragility_results = {}
@@ -125,32 +127,20 @@ for row, alpha in enumerate(alpha_values):
     ax1b.legend(loc="upper right")
     ax1b.grid(True)
 
-    # ---- Column 2: Hill / DIP curve ---- #
+    # ---- Column 2: Fragility ---- #
     ax2 = fig.add_subplot(gs_main[row, 2])
-    set_panel_title(ax2, panel_labels[label_idx], f"DIP Curve (α={alpha}) at t=0.1")
-    label_idx += 1
-
-    x_vals, hill_vals = compute_hill_curve(alpha)
-    ax2.plot(x_vals, hill_vals, lw=2, color="black")
-    ax2.axhline(0, color="gray", linestyle="--", alpha=0.5)
-    ax2.set_xlabel(r"Drug dose $\bar{x}$ (mg/L)")
-    ax2.set_ylabel(r"DIP rate $H(\bar{x})$")
-    ax2.grid(True)
-
-    # ---- Column 3: Fragility ---- #
-    ax3 = fig.add_subplot(gs_main[row, 3])
-    set_panel_title(ax3, panel_labels[label_idx], f"Fragility vs Dose (α={alpha})")
+    set_panel_title(ax2, panel_labels[label_idx], f"Fragility vs Dose (α={alpha})")
     label_idx += 1
 
     for sigma in sigma_values:
-        ax3.plot(dose_values, fragility_results[sigma], lw=2, label=f"σ={sigma}")
-    ax3.axhline(0, color="gray", linestyle="--")
-    ax3.set_xlabel(r"Drug dose $\bar{x}$ (mg/L)")
-    ax3.set_ylabel(r"Fragility $F(\bar{x},\sigma)$")
-    ax3.legend()
-    ax3.grid(True)
+        ax2.plot(dose_values, fragility_results[sigma], lw=2, label=f"σ={sigma}")
+    ax2.axhline(0, color="gray", linestyle="--")
+    ax2.set_xlabel(r"Drug dose $\bar{x}$ (mg/L)")
+    ax2.set_ylabel(r"Fragility $F(\bar{x},\sigma)$")
+    ax2.legend()
+    ax2.grid(True)
 
 # Save + show
 plt.savefig("misc_analysis/graphs/General_PK_Results_labelled.png", dpi=300, bbox_inches="tight")
-print("Figure saved as 'misc_analysis/graphs/General_PK_Result_labelled.png'")
+print("Figure saved as 'misc_analysis/graphs/General_PK_Results_labelled.png'")
 plt.show()
