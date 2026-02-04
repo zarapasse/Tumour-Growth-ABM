@@ -244,21 +244,22 @@ fig, ax = plt.subplots(figsize=(10, 6))
 t = np.arange(timesteps) * dt
 
 # Cell counts
-ax.plot(t, mean_cells, lw=2, label="Mean cell count")
+ax.plot(t, mean_cells, lw=2, label="Mean cell count", color="blue")
 ax.fill_between(
     t,
     mean_cells - std_cells,
     mean_cells + std_cells,
     alpha=0.25,
     label="Mean ± SD",
+    color="blue",
 )
 
 # ------------------- Logistic fit ------------------- #
 K1, r1, N0_1, fit1 = fit_logistic_direct(t, mean_cells)
 ax.plot(t, fit1, "k--", lw=2, label=f"Logistic fit")
 
-ax.set_xlabel("Time")
-ax.set_ylabel("Count")
+ax.set_xlabel("Time (days)")
+ax.set_ylabel("Tumour Population (cells)")
 ax.set_title("Resource-dependent ABM vs Logistic Fit (no drug)")
 ax.legend()
 ax.grid(alpha=0.3)
@@ -281,7 +282,7 @@ param_lines = [
     f"resource_influx  = {resource_influx}",
     f"energy_capacity  = {energy_capacity}",
     "",
-    "Logistic fit (mean)",
+    "Logistic fit",
     "----------------------",
     f"K   = {K1:.3g}",
     f"r   = {r1:.3g}",

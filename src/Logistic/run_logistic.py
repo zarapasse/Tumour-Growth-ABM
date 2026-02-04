@@ -8,10 +8,10 @@ from utils_logistic import (
     process_scenarios_config,
     process_config,
     run_abm_logistic,
-    deterministic_pk,
     logistic_fit,
+    continuum_logistic_with_pkpd,
+    set_panel_title,
 )
-
 
 # ---------------- Load Config ---------------- #
 CONFIG_PATH = Path(__file__).parent / "config_logistic.json"
@@ -25,7 +25,7 @@ do_fragility_test = True
 if do_fragility_test:
     print("Running fragility test for logistic ABM...")
 
-    x_bar = 25
+    x_bar = 20
     n_doses_per_cycle = 2
     total_dose_per_cycle = x_bar * n_doses_per_cycle
     sigma = total_dose_per_cycle / 2
@@ -94,11 +94,17 @@ for i, sc in enumerate(scenarios):
     std_abm  = abm_results["std_trajectories"][i]
 
     # analytic comparator: logistic fit of NO-DRUG baseline
-    N_det = baseline_fit
-
-    # deterministic PK curve
-    conc_det = deterministic_pk(time, sc["schedule"], sc["alpha"])
-
+    N_det, conc_det, conc_used, k_det = continuum_logistic_with_pkpd(
+        time=time,
+        dt=dt,
+        N0=mean_no_drug[0],     # match ABM mean initial
+        K=K0,
+        r=r0,
+        schedule=sc["schedule"],
+        alpha=sc["alpha"],
+        hill_params=hill_params,
+        lag_one_step=True,      # IMPORTANT: match ABM
+    )
     results.append({
         "name": sc["name"],
         "schedule": sc["schedule"],
@@ -128,7 +134,7 @@ for i, res in enumerate(results):
     col = scenario_palette[i % len(scenario_palette)]
 
     ax1.plot(time, res["mean"], lw=2, color=col,
-             label=f'{res["name"]} — ABM mean')
+             label=f'{res["name"]} — ABM')
 
     ax1.fill_between(
         time,
@@ -137,27 +143,42 @@ for i, res in enumerate(results):
         color=col,
         alpha=0.1,
     )
+    
+    # continuum logistic + drug comparator
+    ax1.plot(
+        time,
+        res["N_det"],
+        ls="--",
+        lw=2,
+        color=col,
+        alpha=0.4,
+        label=f'{res["name"]} — logistic',
+    )
 
     # dosing lines
     for amt, t_dose in res["schedule"]:
         ax1.axvline(t_dose, color=col, ls=":", alpha=0.3)
+    
 
-ax1.set_title("Logistic Energy-based ABM — Tumour Trajectories")
-ax1.set_ylabel("Cells")
+# Panel label (left-aligned)
+ax1.set_title(r"$\mathbf{(A)}$", loc="left", fontsize=12, pad=6)
+
+# Main title (centered)
+ax1.set_title(
+    "Tumour Population: Resource-Dependent ABM",
+    loc="center",
+    fontsize=13,
+    pad=6,
+)
+
+
+ax1.set_xlabel("Time (days)")
+ax1.set_ylabel("Tumour Population (cells)")
 ax1.grid(alpha=0.3)
 ax1.legend(ncol=2, fontsize=9)
 
 
-# ---- GLOBAL NO-DRUG ANALYTIC CURVE (black/grey) ---- #
-ax1.plot(
-    time,
-    baseline_fit,
-    "--",
-    color="grey",
-    lw=3,
-    alpha=0.6,
-    label="No-drug logistic fit"
-)
+
 
 
 # ===================== BOTTOM: PK Profiles =====================
@@ -169,62 +190,69 @@ for i, res in enumerate(results):
         res["conc_det"],
         lw=2,
         color=col,
-        label=f'{res["name"]} (α={res["alpha"]})'
+        label=f'{res["name"]}'
     )
 
-ax2.set_title("PK Profiles")
-ax2.set_xlabel("Time")
-ax2.set_ylabel("Drug Concentration")
+
+# Panel label (left-aligned)
+ax2.set_title(r"$\mathbf{(B)}$", loc="left", fontsize=12, pad=6)
+
+# Main title (centered)
+ax2.set_title(
+    "Pharmacokinetic Drug Concentration Profiles",
+    loc="center",
+    fontsize=12,
+    pad=6,
+)
+ax2.set_xlabel("Time (days)")
+ax2.set_ylabel("Drug Concentration (mg/L)")
 ax2.grid(alpha=0.3)
 ax2.legend(ncol=2, fontsize=9)
 
 
-
 # ----------------- parameter info box ----------------- #
 param_lines = [
-    f"initial_cells: {initial_cells}",
-    f"birth_rate: {birth_rate}",
-    f"death_rate: {death_rate}",
-    f"dt: {dt}, steps: {steps}",
-    f"n_runs: {n_runs}",
+    "Simulation parameters",
+    "----------------------",
+    f"initial_cells = {initial_cells}",
+    f"birth_rate   = {birth_rate}",
+    f"death_rate   = {death_rate}",
+    f"dt           = {dt}",
+    f"steps        = {steps}",
+    f"n_runs       = {n_runs}",
     "Hill parameters:",
+    "----------------------",
     f"  E0: {hill_params['E0']}",
     f"  E1: {hill_params['E1']}",
     f"  C:  {hill_params['C']}",
     f"  n:  {hill_params['n']}",
+    "Logistic Fit (No Drug):",
+    "----------------------",
+    f"K:  {K0:.3f}",
+    f"r:  {r0:.3f}",
+    f"N0: {N0_0:.1f}",
 ]
+
 param_text = "\n".join(param_lines)
 
-# reserve a narrow area on the right for the slim info box and draw the text
-plt.tight_layout(rect=(0, 0, 0.88, 1.0))   # leave ~12% on the right for the info box (moved left)
+# Reserve space on the right ONCE
+plt.tight_layout(rect=(0, 0, 0.82, 1.0))
+
 fig.text(
-    0.855,                # moved left so the box sits just next to the axes
-    0.98,                # start from top so lines flow downward
+    0.84,          # x-position (outside axes)
+    0.98,          # y-position (top-aligned)
     param_text,
-    fontsize=7,          # smaller font to fit the slim box
     va="top",
     ha="left",
+    fontsize=8,
     family="monospace",
-    bbox=dict(boxstyle="round", facecolor="white", alpha=0.9, edgecolor="0.8"),
+    bbox=dict(
+        boxstyle="round",
+        facecolor="white",
+        edgecolor="0.8",
+        alpha=0.95,
+    ),
 )
 
-
-
-
-
-
-
-
-
-plt.tight_layout()
+plt.savefig(Path(__file__).parent / "logistic_abm_trajectories_continuum.png", dpi=300)
 plt.show()
-
-
-# ------------------------------------------------------
-# FRAGILITY PRINT
-# ------------------------------------------------------
-if is_fragility:
-    frag = abm_results["fragility"]
-    print("\n===== FRAGILITY ANALYSIS (LOGISTIC ABM) =====")
-    print(f"Mean fragility = {frag['mean']:.4f}")
-    print(f"Per-run fragility = {frag['per_run']}")

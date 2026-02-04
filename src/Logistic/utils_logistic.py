@@ -46,6 +46,8 @@ def run_abm_logistic(config, scenarios, seed=1, compute_fragility=False):
 
         runs = []
         for r in range(n_runs):
+            
+            print(f"Running scenario '{sc['name']}', run {r+1}/{n_runs}...")
 
             model = TumourModel(
                 initial_cells=initial_cells,
@@ -269,6 +271,7 @@ def run_abm_logistic_resistant(config, scenarios, seed=1, compute_fragility=Fals
     steps             = sim["steps"]
     n_runs            = sim["n_runs"]
     p_mutation        = sim["p_mutation"]
+    initial_resistant_fraction = sim.get("initial_resistant_fraction", 0.0)
 
     initial_resources = sim["initial_resources"]
     resource_influx   = sim["resource_influx"]
@@ -301,6 +304,8 @@ def run_abm_logistic_resistant(config, scenarios, seed=1, compute_fragility=Fals
 
         # ------------------ stochastic runs ------------------ #
         for _ in range(n_runs):
+            
+            print(f"Running scenario '{sc['name']}', run {_+1}/{n_runs}...")
 
             model = TumourResistantModel(
                 initial_cells     = initial_cells,
@@ -314,6 +319,7 @@ def run_abm_logistic_resistant(config, scenarios, seed=1, compute_fragility=Fals
                 p_mutation        = p_mutation,
                 drug_schedule     = schedule,
                 hill_params       = hill_params,
+                initial_resistant_fraction=initial_resistant_fraction,
             )
 
             for _ in range(steps):
@@ -403,3 +409,120 @@ def run_abm_logistic_resistant(config, scenarios, seed=1, compute_fragility=Fals
         "resistant_fraction": resistant_fraction,
         "all_trajectories": all_trajectories,
     }
+    
+    
+    
+    
+    
+    
+    import numpy as np
+
+def hill_equation(drug_conc, hill_params):
+    """
+    Match TumourModel.hill_equation exactly:
+    H(x) = E0 + (x^n (E1 - E0)) / (x^n + C^n)
+    """
+    E0 = hill_params["E0"]
+    E1 = hill_params["E1"]
+    C  = hill_params["C"]
+    n  = hill_params["n"]
+
+    drug_conc = np.asarray(drug_conc, dtype=float)
+
+    kill = np.empty_like(drug_conc)
+    kill[:] = E0
+
+    pos = drug_conc > 0
+    x = drug_conc[pos]
+    kill[pos] = E0 + (x**n * (E1 - E0)) / (x**n + C**n)
+
+    return kill
+
+
+def continuum_logistic_with_pkpd(time, dt, N0, K, r, schedule, alpha, hill_params, lag_one_step=True):
+    """
+    Continuum logistic + drug:
+        dN/dt = r N (1 - N/K) - k(x(t)) N
+
+    Uses deterministic_pk(time, schedule, alpha) for PK
+    Uses hill_equation(...) matched to your ABM for PD
+
+    lag_one_step=True replicates the ABM detail that p_death uses the previous
+    timestep's stored drug_conc ("current_drug_conc").
+    """
+    # PK concentration profile at the time grid
+    conc = deterministic_pk(time, schedule, alpha)
+
+    # Match ABM's one-step lag: at step j, ABM uses conc from previous update.
+    # In ABM: step 0 uses 0, then updates conc at t=0 for next step.
+    if lag_one_step:
+        conc_used = np.zeros_like(conc)
+        conc_used[1:] = conc[:-1]
+    else:
+        conc_used = conc
+
+    # PD kill rate
+    k = hill_equation(conc_used, hill_params)
+
+    N = np.zeros_like(time, dtype=float)
+    N[0] = float(N0)
+
+    for j in range(1, len(time)):
+        Nj = N[j - 1]
+        growth = r * Nj * (1.0 - Nj / K)
+        kill   = k[j - 1] * Nj
+        N[j] = max(0.0, Nj + dt * (growth - kill))
+
+    return N, conc, conc_used, k
+
+
+
+def set_panel_title(ax, label, title):
+    ax.set_title(
+        rf"$\mathbf{{({label})}}$ {title}",
+        loc="left",
+        fontsize=12,
+        pad=6,
+    )
+    
+    
+    
+    from scipy.optimize import curve_fit
+import numpy as np
+
+def logistic_function(t, K, r, N0):
+    return K / (1 + ((K - N0) / N0) * np.exp(-r * t))
+
+def logistic_fit_windowed(time, mean_cells, t_start=10.0):
+    """
+    Fit logistic curve using only time >= t_start, but return the fitted curve
+    over the FULL time array for plotting.
+    """
+    mask = time >= t_start
+    t_fit = time[mask]
+    y_fit = mean_cells[mask]
+
+    # shift time so exponentials are well-conditioned
+    t0 = t_fit[0]
+    t_fit_shift = t_fit - t0
+
+    # initial guesses
+    K_guess = np.max(y_fit) * 1.05
+    r_guess = 0.1
+    N0_guess = max(y_fit[0], 1e-6)
+
+    params, _ = curve_fit(
+        logistic_function,
+        t_fit_shift,
+        y_fit,
+        p0=[K_guess, r_guess, N0_guess],
+        bounds=([0, 0, 0], [np.inf, np.inf, np.inf]),
+        maxfev=20000,
+    )
+    K, r, N0 = params
+
+    # build fitted curve over full time array (using same time shift convention)
+    full_shift = time - t0
+    fitted_full = logistic_function(full_shift, K, r, N0)
+
+    return K, r, N0, fitted_full
