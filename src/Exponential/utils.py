@@ -1,7 +1,7 @@
 import random
 import numpy as np
-from Exponential_Model import TumourModel
-from Exponential_Drug_Resistance import TumourModel as ResistantTumourModel
+from Models.Exponential_Model import TumourModel
+from Models.Exponential_Drug_Resistance import TumourModel as ResistantTumourModel
 
 
 def process_config(config):
@@ -179,7 +179,7 @@ def run_abm(config, scenarios, seed=None, compute_fragility=False):
     final_volumes = []
 
     for sc in scenarios:
-        all_counts = np.zeros((n_runs, steps), dtype=float)
+        all_counts = np.zeros((n_runs, steps + 1), dtype=float)
         for r in range(n_runs):
             print(f"Running scenario '{sc['name']}', run {r+1}/{n_runs}")
             m = TumourModel(
@@ -192,10 +192,14 @@ def run_abm(config, scenarios, seed=None, compute_fragility=False):
                 hill_params=hill_params,
             )
             counts = []
+            
+            time = np.arange(steps + 1) * dt
+
+            counts = [len(m.agents)]      # t = 0
             for _ in range(steps):
                 m.step()
-                counts.append(len(m.agents))
-            all_counts[r] = counts
+                counts.append(len(m.agents))  # t = dt, 2dt, ..., steps*dt
+            all_counts[r] = counts      
 
         mean_trajectories.append(all_counts.mean(axis=0))
         std_trajectories.append(all_counts.std(axis=0))

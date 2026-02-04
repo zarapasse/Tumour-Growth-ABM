@@ -15,7 +15,7 @@ with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
 initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
-time = np.arange(steps) * dt
+time = np.arange(steps + 1) * dt
 
 # ---------------------- No-drug scenario ---------------------- #
 scenarios = [
@@ -33,12 +33,7 @@ mean_abm = abm_out["mean_trajectories"][0]
 std_abm = abm_out["std_trajectories"][0]
 
 # ---------------------- Analytic solution (no drug) ---------------------- #
-N_det = analytic_population_no_drug(
-    time,
-    initial_cells,
-    birth_rate,
-    death_rate,
-)
+N_det = analytic_population_no_drug(time, initial_cells, birth_rate, death_rate)
 
 # ---------------------- Plot ---------------------- #
 fig, ax = plt.subplots(figsize=(10, 6))
