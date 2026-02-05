@@ -33,9 +33,7 @@ CONFIG_PATH = Path(__file__).parent / "config.json"
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
-time = np.arange(steps) * dt
-# ----------------- Sweep settings (edit as needed) ----------------- #
+# ----------------- Sweep settings ----------------- #
 n_doses_per_cycle = 2
 n_cycles = 4
 cycle_length = 12
@@ -43,13 +41,14 @@ alpha_val = 1.0
 
 t_end = n_cycles * cycle_length
 
-# IMPORTANT: update config first
-dt = config["simulation"]["dt"]
-config["simulation"]["steps"] = int(round(t_end / dt)) + 1
+# Ensure steps correspond to exactly t_end, given dt in config
+dt = float(config["simulation"]["dt"])
+steps = int(round(t_end / dt))  # ABM will return steps+1 time points (including t=0)
+config["simulation"]["steps"] = steps
 
-# Now re-read params AFTER updating config
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
-time = np.arange(steps) * dt
+initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(
+    config
+)
 
 x_bar_values = np.arange(10, 100, 5)
 
@@ -57,15 +56,10 @@ x_bar_values = np.arange(10, 100, 5)
 F_det = []
 F_abm_mean = []
 F_abm_std = []
-
 # ----------------- Main loop ----------------- #
 for x_bar in x_bar_values:
     total_dose_per_cycle = x_bar * n_doses_per_cycle
-
-    # "Holiday" / maximally uneven schedule:
-    # mean_dose = total_dose_per_cycle / 2 = x_bar, sigma = x_bar
-    # -> odd doses: (x_bar+sigma, x_bar-sigma) = (2x_bar, 0)
-    sigma = total_dose_per_cycle / 2.0
+    sigma = total_dose_per_cycle / 2.0  # gives (2x_bar, 0) in 2-dose case
 
     scenarios = make_fragility_test_scenarios(
         total_dose_per_cycle,
@@ -75,11 +69,11 @@ for x_bar in x_bar_values:
         cycle_length,
         alpha_val,
     )
+    even_sc, odd_sc = scenarios[0], scenarios[1]
 
-    # Scenarios are guaranteed by your utils to be:
-    # scenarios[0] = Even Schedule, scenarios[1] = Odd Schedule
-    even_sc = scenarios[0]
-    odd_sc = scenarios[1]
+    # ---------- ABM (also provides the time grid) ----------
+    abm_out = run_abm(config, scenarios, seed=42, compute_fragility=True)
+    time = abm_out["time"]
 
     # ---------- Deterministic fragility ----------
     N_even, _ = analytic_population_with_pk(
@@ -101,50 +95,47 @@ for x_bar in x_bar_values:
         hill_params,
     )
 
-    V_even_det = float(N_even[-1])
-    V_odd_det = float(N_odd[-1])
-    F_det.append((V_odd_det - V_even_det) / float(initial_cells))
+    F_det.append((float(N_odd[-1]) - float(N_even[-1])) / float(initial_cells))
 
-    # ---------- ABM fragility (no resistance) ----------
-    abm_out = run_abm(config, scenarios, seed=42, compute_fragility=True)
-
-    per_run = np.array(abm_out["fragility"]["per_run"], dtype=float)
+    # ---------- ABM fragility ----------
+    per_run = np.asarray(abm_out["fragility"]["per_run"], dtype=float)
     F_abm_mean.append(float(per_run.mean()))
     F_abm_std.append(float(per_run.std(ddof=1)) if per_run.size > 1 else 0.0)
 
-F_det = np.array(F_det, dtype=float)
-F_abm_mean = np.array(F_abm_mean, dtype=float)
-F_abm_std = np.array(F_abm_std, dtype=float)
+F_det = np.asarray(F_det, dtype=float)
+F_abm_mean = np.asarray(F_abm_mean, dtype=float)
+F_abm_std = np.asarray(F_abm_std, dtype=float)
 
 # ----------------- Plot ----------------- #
 fig, ax = plt.subplots(figsize=(10.5, 6.5))
 
-ax.plot(x_bar_values, F_det, lw=2, label="Deterministic", color='black')
-ax.plot(x_bar_values, F_abm_mean, lw=2, label="ABM mean", color='blue')
+ax.plot(x_bar_values, F_det, lw=2, label="Deterministic", color="black")
+ax.plot(x_bar_values, F_abm_mean, lw=2, label="ABM mean", color="blue")
 ax.fill_between(
     x_bar_values,
     F_abm_mean - F_abm_std,
     F_abm_mean + F_abm_std,
     alpha=0.15,
     label="ABM ± SD",
-    color='blue',
+    color="blue",
 )
 
 ax.axhline(0.0, lw=1, ls="--")
 ax.set_xlabel(r"Mean dose $\bar{x}$ (mg/L)")
-ax.set_ylabel(r"Fragility")
-ax.set_title("Fragility vs mean dose (4 cycles)")
+ax.set_ylabel("Fragility")
+ax.set_title(f"Fragility vs mean dose ({n_cycles} cycles)")
 ax.grid(True, alpha=0.3)
 ax.legend(fontsize=9, ncol=3)
 
-# ---------------------- Parameter side panel ---------------------- #
+# ----------------- Parameter panel ----------------- #
 param_lines = [
-    "Fragility values",
+    "Sweep parameters",
     "--------------",
     f"alpha        = {alpha_val}",
     f"n_cycles     = {n_cycles}",
     f"cycle_length = {cycle_length}",
     f"doses/cycle  = {n_doses_per_cycle}",
+    f"t_end        = {t_end}",
     "",
     "Model parameters",
     "-----------",
@@ -157,10 +148,9 @@ param_lines = [
     "",
     "Hill parameters",
     "----------",
-    f"E0 = {hill_params['E0']}",
-    f"E1 = {hill_params['E1']}",
-    f"C  = {hill_params['C']}",
-    f"n  = {hill_params['n']}",
+    f"K_kill = {hill_params.K_kill}",
+    f"C      = {hill_params.C}",
+    f"n      = {hill_params.n}",
 ]
 param_text = "\n".join(param_lines)
 
@@ -176,7 +166,10 @@ fig.text(
     bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
 )
 
-outpath = Path(__file__).parent / "Fragility_vs_mean_dose_4_cycles.png"
+outpath = (
+    Path(__file__).parent
+    / f"Graphs/No_Resistance/Fragility_vs_mean_dose_{n_cycles}_cycles.png"
+)
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
 plt.show()
 

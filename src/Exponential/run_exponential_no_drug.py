@@ -1,5 +1,8 @@
+"""This script runs and validates the Exponential ABM in a no-drug scenario."""
+
 import json
 from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -14,17 +17,13 @@ CONFIG_PATH = Path(__file__).parent / "config.json"
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
+initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _ = (
+    process_config(config)
+)
 time = np.arange(steps + 1) * dt
 
 # ---------------------- No-drug scenario ---------------------- #
-scenarios = [
-    {
-        "name": "No drug",
-        "schedule": [],
-        "alpha": 0.0
-    }
-]
+scenarios = [{"name": "No drug", "schedule": [], "alpha": 0.0}]
 
 # ---------------------- Run ABM ---------------------- #
 abm_out = run_abm(config, scenarios, seed=42)
@@ -32,7 +31,7 @@ abm_out = run_abm(config, scenarios, seed=42)
 mean_abm = abm_out["mean_trajectories"][0]
 std_abm = abm_out["std_trajectories"][0]
 
-# ---------------------- Analytic solution (no drug) ---------------------- #
+# ---------------------- Analytic solution ---------------------- #
 N_det = analytic_population_no_drug(time, initial_cells, birth_rate, death_rate)
 
 # ---------------------- Plot ---------------------- #
@@ -48,14 +47,7 @@ ax.fill_between(
     color="blue",
 )
 
-ax.plot(
-    time,
-    N_det,
-    "k--",
-    lw=2,
-    label="Deterministic",
-    color="black",
-)
+ax.plot(time, N_det, linestyle="--", color="black", lw=2, label="Deterministic")
 
 ax.set_xlabel("Time (days)")
 ax.set_ylabel("Tumour population (cells)")
@@ -81,8 +73,8 @@ param_text = "\n".join(param_lines)
 plt.tight_layout(rect=(0, 0, 0.82, 1.0))
 
 fig.text(
-    0.84,          # x-position (outside axes)
-    0.95,          # y-position (top-aligned)
+    0.84,  # x-position
+    0.95,  # y-position
     param_text,
     va="top",
     ha="left",
@@ -97,7 +89,11 @@ fig.text(
 )
 
 plt.tight_layout(rect=(0, 0, 0.82, 1.0))
-plt.savefig("validation_no_drug.png", dpi=300, bbox_inches="tight")
+outpath = (
+    Path(__file__).parent
+    / "Graphs/No_Resistance/Exponential_validation_no_drug_competing_risks_largedt.png"
+)
+plt.savefig(outpath, dpi=300, bbox_inches="tight")
 plt.show()
 
 # ---------------------- Diagnostics ---------------------- #

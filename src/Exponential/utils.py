@@ -1,205 +1,125 @@
-import random
 import numpy as np
-from Models.Exponential_Model import TumourModel
+from Models.Exponential_Model import TumourModel, HillParams
 from Models.Exponential_Drug_Resistance import TumourModel as ResistantTumourModel
 
 
 def process_config(config):
-    sim_params = config["simulation"]
-    hill_params = config["hill_parameters"]
-    initial_cells = sim_params["initial_cells"]
-    birth_rate = sim_params["birth_rate"]
-    death_rate = sim_params["death_rate"]
-    dt = sim_params["dt"]
-    steps = sim_params["steps"]
-    n_runs = sim_params["n_runs"]
+    """Extract and return simulation parameters from config dict."""
+    sim = config["simulation"]
+    hill = config.get("hill_parameters", None)
 
-    return initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params
+    initial_cells = sim["initial_cells"]
+    birth_rate = sim["birth_rate"]
+    death_rate = sim["death_rate"]
+    dt = sim["dt"]
+    steps = sim["steps"]
+    n_runs = sim["n_runs"]
+    p_mutation = sim["p_mutation"] if not None else 0.0
+    initial_resistant_fraction = sim["initial_resistant_fraction"] if not None else 0.0
 
-def process_scenarios_config(config):  
-    drug_params = config["drug"]
-    scenarios = []
-    if "schedule" in drug_params and isinstance(drug_params["schedule"], list):
-        for idx, sc in enumerate(drug_params["schedule"]):
-            name = sc.get("name", f"Schedule {idx+1}")
-            alpha = sc.get("alpha", drug_params.get("alpha"))
-            sched = [tuple(d) for d in sc.get("schedule", [])]
-            scenarios.append({
-                "name": name,
-                "schedule": sched,
-                "alpha": alpha
-            })
-    return scenarios
+    hill_params = None
+    if hill is not None:
+        hill_params = HillParams(
+            K_kill=hill["K_kill"],
+            C=hill["C"],
+            n=hill["n"],
+        )
 
-# Create schedules for testing multiple cycles
+    return (
+        initial_cells,
+        birth_rate,
+        death_rate,
+        dt,
+        steps,
+        n_runs,
+        hill_params,
+        p_mutation,
+        initial_resistant_fraction,
+    )
 
-def make_fragility_test_scenarios(total_dose, n_doses, n_cycles, sigma, cycle_length, alpha):
+
+def make_fragility_test_scenarios(
+    total_dose_per_cycle, n_doses_per_cycle, n_cycles, sigma, cycle_length, alpha
+):
     """
-    Create two ABM scenarios for fragility analysis: even and uneven schedules.
+    Build two scenarios (even vs uneven) over repeated treatment cycles.
 
-    Parameters:
-        total_dose (float): total dose per cycle
-        n_doses (int): number of doses per cycle
-        n_cycles (int): number of repeated cycles
-        sigma (float): additive deviation from mean for uneven schedule (>=0)
-        cycle_length (float): length of one cycle (time units)
-        alpha (float): PK decay rate (kept for API compatibility)
+    - Even: every dose in a cycle is mean_dose = total_dose_per_cycle / n_doses_per_cycle
+    - Uneven: doses alternate mean_dose ± sigma, summing to the same total per cycle.
 
     Returns:
-        list of dict: two scenario dicts (even and odd/uneven) ready for ABM
+        [
+          {"name": "Even Schedule", "schedule": [...], "alpha": alpha},
+          {"name": "Odd Schedule",  "schedule": [...], "alpha": alpha},
+        ]
     """
 
-    if n_doses <= 0:
-        raise ValueError("n_doses must be >= 1")
+    mean_dose = total_dose_per_cycle / n_doses_per_cycle
 
-    mean_dose = total_dose / n_doses
-    if sigma < 0:
-        raise ValueError("sigma must be non-negative")
-    if sigma > mean_dose:
-        raise ValueError(f"sigma is too large (would produce negative doses). "
-                         f"Require sigma <= mean_dose ({mean_dose}).")
+    # dose times within a cycle
+    dt_dose = cycle_length / n_doses_per_cycle
 
-    # ---- Even schedule ----
+    # ---- even schedule ----
     even_schedule = []
     for c in range(n_cycles):
         cycle_start = c * cycle_length
-        dose_amount = mean_dose
-        times = [cycle_start + i * (cycle_length / n_doses) for i in range(n_doses)]
-        even_schedule += [(dose_amount, t) for t in times]
+        for i in range(n_doses_per_cycle):
+            even_schedule.append((mean_dose, cycle_start + i * dt_dose))
 
-    # ---- Uneven / odd schedule using additive sigma ----
-    # Build deviations that sum to zero: +sigma, -sigma, +sigma, -sigma, ...
-    # If n_doses is odd, set the last deviation to 0 to keep sum exactly zero.
-    deviations = [sigma if i % 2 == 0 else -sigma for i in range(n_doses)]
-    if n_doses % 2 == 1:
-        deviations[-1] = 0.0
+    # ---- uneven schedule ----
+    deviations = [sigma if i % 2 == 0 else -sigma for i in range(n_doses_per_cycle)]
+    if n_doses_per_cycle % 2 == 1:
+        deviations[-1] = 0.0  # keep per-cycle total exactly the same
 
-    # Scaled doses = mean + deviation (guaranteed non-negative by check above)
     odd_schedule = []
     for c in range(n_cycles):
         cycle_start = c * cycle_length
-        times = [cycle_start + i * (cycle_length / n_doses) for i in range(n_doses)]
-        doses = [mean_dose + d for d in deviations]
-        odd_schedule += list(zip(doses, times))
+        for i, dev in enumerate(deviations):
+            odd_schedule.append((mean_dose + dev, cycle_start + i * dt_dose))
 
-    # ---- Package as ABM-ready scenario dicts ----
-    scenarios = [
+    return [
         {"name": "Even Schedule", "schedule": even_schedule, "alpha": alpha},
-        {"name": "Odd Schedule", "schedule": odd_schedule, "alpha": alpha}
+        {"name": "Odd Schedule", "schedule": odd_schedule, "alpha": alpha},
     ]
-
-    return scenarios
-
-def calculate_fragility(results_even, results_odd, initial_cells):
-    """
-    Calculate fragility between an even and odd schedule.
-
-    Parameters:
-        results_even (np.array): shape (n_runs, steps) or (steps,) if mean, ABM results for even schedule
-        results_odd (np.array): same as above, for odd schedule
-        initial_cells (int): initial tumour cell number
-
-    Returns:
-        float: mean fragility
-        np.array: fragility per run (if multiple runs)
-    """
-    # Convert to shape (n_runs, steps) if only mean passed
-    if results_even.ndim == 1:
-        results_even = results_even.reshape(1, -1)
-    if results_odd.ndim == 1:
-        results_odd = results_odd.reshape(1, -1)
-
-
-    fragility_per_run = (results_odd[:, -1] - results_even[:, -1]) / initial_cells
-
-    mean_fragility = fragility_per_run.mean()
-
-    return mean_fragility, fragility_per_run
-
-
-
-
-
-
-
-#---------------------- ABM simulation runner ---------------------- #
-def run_abm_for_schedule(config, schedule, alpha_val, seed=None):
-    if seed is not None:
-        np.random.seed(seed)
-        random.seed(seed)
-    initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, = process_config(config)
-    all_counts = np.zeros((n_runs, steps), dtype=float)
-    conc_trace = None
-    for r in range(n_runs):
-        m = TumourModel(
-            initial_cells,
-            birth_rate,
-            death_rate,
-            dt,
-            drug_schedule=schedule.copy(),
-            alpha=alpha_val,
-            hill_params=hill_params,
-        )
-        counts = []
-        concs = []
-        for _ in range(steps):
-            m.step()
-            counts.append(len(m.agents))
-            concs.append(m.drug_conc)
-        all_counts[r] = counts
-        if r == 0:
-            conc_trace = np.array(concs, dtype=float)
-    mean = all_counts.mean(axis=0)
-    std = all_counts.std(axis=0)
-    return mean, std, conc_trace
-
-
 
 
 def run_abm(config, scenarios, seed=None, compute_fragility=False):
-    """
-    Run ABM for given scenarios. Optionally compute fragility if two scenarios (even/odd) are provided.
+    """Run ABM for given scenarios. Returns mean/std trajectories and fragility if computed."""
 
-    Parameters:
-        config (dict): ABM config
-        scenarios (list of dict): each dict with keys 'name', 'schedule', 'alpha'
-        seed (int, optional): random seed
-        compute_fragility (bool): if True, calculate fragility between first two scenarios
-    Returns:
-        dict: results including mean/std trajectories, optionally fragility
-    """
-    if seed is not None:
-        np.random.seed(seed)
-        random.seed(seed)
+    initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _ = (
+        process_config(config)
+    )
 
-    initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
+    time = np.arange(steps + 1) * dt
 
     mean_trajectories = []
     std_trajectories = []
     final_volumes = []
+
+    # reproducibility
+    base_seed = 0 if seed is None else int(seed)
+    run_seeds = [base_seed + r for r in range(n_runs)]
 
     for sc in scenarios:
         all_counts = np.zeros((n_runs, steps + 1), dtype=float)
         for r in range(n_runs):
             print(f"Running scenario '{sc['name']}', run {r+1}/{n_runs}")
             m = TumourModel(
-                initial_cells,
-                birth_rate,
-                death_rate,
-                dt,
-                drug_schedule=sc["schedule"].copy(),
+                initial_cells=initial_cells,
+                birth_rate=birth_rate,
+                death_rate=death_rate,
+                dt=dt,
                 alpha=sc["alpha"],
+                drug_schedule=list(sc["schedule"]),
                 hill_params=hill_params,
+                seed=run_seeds[r],
             )
-            counts = []
-            
-            time = np.arange(steps + 1) * dt
-
-            counts = [len(m.agents)]      # t = 0
+            counts = [len(m.agents)]
             for _ in range(steps):
                 m.step()
-                counts.append(len(m.agents))  # t = dt, 2dt, ..., steps*dt
-            all_counts[r] = counts      
+                counts.append(len(m.agents))
+
+            all_counts[r] = counts
 
         mean_trajectories.append(all_counts.mean(axis=0))
         std_trajectories.append(all_counts.std(axis=0))
@@ -208,121 +128,165 @@ def run_abm(config, scenarios, seed=None, compute_fragility=False):
     results = {
         "scenarios": scenarios,
         "mean_trajectories": mean_trajectories,
-        "std_trajectories": std_trajectories
+        "std_trajectories": std_trajectories,
+        "time": time,
     }
 
-    # Compute fragility if requested and we have two schedules
     if compute_fragility and len(final_volumes) >= 2:
         frag_per_run = (final_volumes[1] - final_volumes[0]) / initial_cells
         results["fragility"] = {
             "per_run": frag_per_run,
             "mean": frag_per_run.mean(),
-            "std": frag_per_run.std()
+            "std": frag_per_run.std(),
         }
 
     return results
 
 
-def run_abm_for_resistant(config, scenarios, seed=None, compute_fragility=False):
-    """
-    Run ABM for given scenarios. Optionally compute fragility if two scenarios (even/odd) are provided.
+def run_abm_resistance(
+    config,
+    scenarios,
+    seed=None,
+    compute_fragility=False,
+    enable_resistance=True,
+):
+    """Run resistant ABM for given scenarios. Returns mean/std trajectories for Total, Sensitive, Resistant."""
+    (
+        initial_cells,
+        birth_rate,
+        death_rate,
+        dt,
+        steps,
+        n_runs,
+        hill_params,
+        p_mutation,
+        initial_resistant_fraction,
+    ) = process_config(config)
 
-    Parameters:
-        config (dict): ABM config
-        scenarios (list of dict): each dict with keys 'name', 'schedule', 'alpha'
-        seed (int, optional): random seed
-        compute_fragility (bool): if True, calculate fragility between first two scenarios
-    Returns:
-        dict: results including mean/std trajectories, optionally fragility
-    """
-    if seed is not None:
-        np.random.seed(seed)
-        random.seed(seed)
+    time = np.arange(steps + 1) * dt
 
-    initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
+    base_seed = 0 if seed is None else int(seed)
+    run_seeds = [base_seed + r for r in range(n_runs)]
 
-    mean_trajectories = []
-    std_trajectories = []
-    final_volumes = []
+    mean_total, std_total = [], []
+    mean_sens, std_sens = [], []
+    mean_res, std_res = [], []
+    final_totals = []
 
     for sc in scenarios:
-        all_counts = np.zeros((n_runs, steps, 2), dtype=float)
+        all_total = np.zeros((n_runs, steps + 1), dtype=float)
+        all_sens = np.zeros((n_runs, steps + 1), dtype=float)
+        all_res = np.zeros((n_runs, steps + 1), dtype=float)
+
         for r in range(n_runs):
             print(f"Running scenario '{sc['name']}', run {r+1}/{n_runs}")
+
             m = ResistantTumourModel(
-                initial_cells,
-                birth_rate,
-                death_rate,
-                dt,
-                drug_schedule=sc["schedule"].copy(),
-                alpha=sc["alpha"],
+                initial_cells=initial_cells,
+                birth_rate=birth_rate,
+                death_rate=death_rate,
+                dt=dt,
+                alpha=float(sc["alpha"]),
+                drug_schedule=list(sc["schedule"]),
                 hill_params=hill_params,
-                p_mutation=config["simulation"]["p_mutation"],
-                enable_resistance=True,
-                initial_resistant_fraction=config["simulation"]["initial_resistant_fraction"],
+                seed=run_seeds[r],
+                enable_resistance=enable_resistance,
+                p_mutation=p_mutation,
+                initial_resistant_fraction=initial_resistant_fraction,
             )
 
+            # Run steps
             for _ in range(steps):
                 m.step()
-                
+
             df = m.datacollector.get_model_vars_dataframe()
-            all_counts[r, :, 0] = df["Sensitive"].values[:steps]
-            all_counts[r, :, 1] = df["Resistant"].values[:steps]
+            # Ensure it matches steps+1
+            all_total[r, :] = df["Total"].to_numpy()
+            all_sens[r, :] = df["Sensitive"].to_numpy()
+            all_res[r, :] = df["Resistant"].to_numpy()
 
+        mean_total.append(all_total.mean(axis=0))
+        std_total.append(all_total.std(axis=0))
+        mean_sens.append(all_sens.mean(axis=0))
+        std_sens.append(all_sens.std(axis=0))
+        mean_res.append(all_res.mean(axis=0))
+        std_res.append(all_res.std(axis=0))
 
-
-        mean_trajectories.append(all_counts.mean(axis=0))
-        std_trajectories.append(all_counts.std(axis=0))
-        final_volumes.append(all_counts[:, -1])
+        final_totals.append(all_total[:, -1])
 
     results = {
         "scenarios": scenarios,
-        "mean_trajectories": mean_trajectories,
-        "std_trajectories": std_trajectories
+        "time": time,
+        "mean_total": mean_total,
+        "std_total": std_total,
+        "mean_sensitive": mean_sens,
+        "std_sensitive": std_sens,
+        "mean_resistant": mean_res,
+        "std_resistant": std_res,
     }
 
-    # Compute fragility if requested and we have two schedules
-    if compute_fragility and len(final_volumes) >= 2:
-        frag_per_run = (final_volumes[1] - final_volumes[0]) / initial_cells
+    if compute_fragility and len(final_totals) >= 2:
+        frag_per_run = (final_totals[1] - final_totals[0]) / float(initial_cells)
         results["fragility"] = {
             "per_run": frag_per_run,
-            "mean": frag_per_run.mean(),
-            "std": frag_per_run.std()
+            "mean": float(frag_per_run.mean()),
+            "std": float(frag_per_run.std()),
         }
 
     return results
-
-
-
-
-
-
-
-
-
 
 
 # ---------------------- Analytic solutions ---------------------- #
-def hill_effect(x, n, C, E0, E1):
-    return E0 + (x**n * (E1 - E0)) / (x**n + C**n + 1e-12)
+def hill_kill_rate(conc, hill_params):
+    """
+    Saturating Hill kill term:
+        k_kill(c) = K_kill * x^n / (x^n + C^n)
+    """
+    K_kill = float(hill_params.K_kill)
+    C = float(hill_params.C)
+    n = float(hill_params.n)
 
-def pk_concentration_series(t, schedule, alpha):
-    conc = np.zeros_like(t, dtype=float)
+    x_n = conc**n
+    denominator = x_n + (C**n)
+
+    return K_kill * (x_n / denominator)
+
+
+def pk_concentration_series(time, schedule, alpha):
+    """Exact PK concentration time series for given dose schedule and decay rate alpha."""
+
+    time = np.asarray(time, dtype=float)
+    conc = np.zeros_like(time, dtype=float)
+
     for amount, t_dose in schedule:
-        mask = t >= t_dose
-        conc[mask] += amount * np.exp(-alpha * (t[mask] - t_dose))
+        amount = float(amount)
+        t_dose = float(t_dose)
+        mask = time >= t_dose
+        conc[mask] += amount * np.exp(-alpha * (time[mask] - t_dose))
+
     return conc
 
-def analytic_population_with_pk(time, N0, birth_rate, death_rate, schedule, alpha, hp):
-    conc = pk_concentration_series(time, schedule, alpha)
-    H = hill_effect(conc, hp["n"], hp["C"], hp["E0"], hp["E1"])
-    g = birth_rate - (death_rate + H)
+
+def analytic_population_with_pk(
+    time, N0, birth_rate, death_rate, schedule, alpha, hill_params
+):
+    """Deterministic expected population under time-varying kill from PK+Hill."""
+
+    time = np.asarray(time, dtype=float)
     N = np.zeros_like(time, dtype=float)
-    N[0] = N0
+    N[0] = float(N0)
+
+    conc = pk_concentration_series(time, schedule, alpha)
+    kill = hill_kill_rate(conc, hill_params)
+
+    g = float(birth_rate) - (float(death_rate) + kill)
+
     for i in range(1, len(time)):
-        dt_step = time[i] - time[i-1]
-        N[i] = N[i-1] * np.exp(g[i-1] * dt_step)  
+        dt_step = time[i] - time[i - 1]
+        N[i] = N[i - 1] * np.exp(g[i - 1] * dt_step)
+
     return N, conc
+
 
 def analytic_population_no_drug(time, N0, birth_rate, death_rate):
     """Closed-form exponential growth/decay with no drug."""

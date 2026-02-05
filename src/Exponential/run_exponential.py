@@ -1,121 +1,98 @@
-import matplotlib.pyplot as plt
+"""This script runs two scenarios of the Exponential ABM to perform a fragility test. The output is a plot with tumour trajectories and PK profiles, as well as fragility metrics printed to console."""
+
 import json
 from pathlib import Path
+
 import numpy as np
+import matplotlib.pyplot as plt
 
 from utils import (
     make_fragility_test_scenarios,
-    process_scenarios_config,
     process_config,
     analytic_population_with_pk,
     run_abm,
 )
 
-# Load parameters from JSON file
+# ---------------------- Load config ---------------------- #
 CONFIG_PATH = Path(__file__).parent / "config.json"
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
-do_fragility_test = True
+print("Running fragility test scenarios...")
 
-if do_fragility_test:
-    print("Running fragility test scenarios...")
+# ---------------------- Scenario parameters ---------------------- #
+x_bar = 20
+n_doses_per_cycle = 2
+total_dose_per_cycle = x_bar * n_doses_per_cycle
+sigma = total_dose_per_cycle / 2
+n_cycles = 4
+cycle_length = 12
+alpha_val = 1
 
-    #! Hardcoded values for dosing analysis
-    x_bar = 20
-    n_doses_per_cycle = 2
-    total_dose_per_cycle = x_bar * n_doses_per_cycle
-    sigma = total_dose_per_cycle / 2      # holiday example
-    n_cycles = 4
-    cycle_length = 12
-    alpha_val = 1
+scenarios = make_fragility_test_scenarios(
+    total_dose_per_cycle, n_doses_per_cycle, n_cycles, sigma, cycle_length, alpha_val
+)
 
-    scenarios = make_fragility_test_scenarios(
-        total_dose_per_cycle, n_doses_per_cycle, n_cycles, sigma, cycle_length, alpha_val
-    )
-    is_fragility = True
-else:
-    print("Processing scenarios from config file...")
-    scenarios = process_scenarios_config(config)
-    is_fragility = False
+# ---------------------- Run ABM ---------------------- #
+initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _ = (
+    process_config(config)
+)
 
-# ---------------- RUN ABM & ANALYTIC ----------------
+abm_results = run_abm(config, scenarios, seed=42, compute_fragility=True)
+time = abm_results["time"]
+
+# ---------------------- Deterministic + bundle results ---------------------- #
 results = []
+for i, sc in enumerate(scenarios):
+    N_det, conc_det = analytic_population_with_pk(
+        time,
+        initial_cells,
+        birth_rate,
+        death_rate,
+        sc["schedule"],
+        sc["alpha"],
+        hill_params,
+    )
 
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
-time = np.arange(steps) * dt
+    results.append(
+        {
+            "name": sc["name"],
+            "mean": abm_results["mean_trajectories"][i],
+            "std": abm_results["std_trajectories"][i],
+            "schedule": sc["schedule"],
+            "alpha": sc["alpha"],
+            "N_det": N_det,
+            "conc_det": conc_det,
+        }
+    )
 
-if is_fragility:
-    abm_results = run_abm(config, scenarios, seed=42, compute_fragility=True)
-
-    for i, sc in enumerate(scenarios):
-        N_det, conc_det = analytic_population_with_pk(
-            time,
-            initial_cells,
-            birth_rate,
-            death_rate,
-            sc["schedule"],
-            sc["alpha"],
-            hill_params,
-        )
-        results.append(
-            {
-                "name": sc["name"],
-                "mean": abm_results["mean_trajectories"][i],
-                "std": abm_results["std_trajectories"][i],
-                "schedule": sc["schedule"],
-                "alpha": sc["alpha"],
-                "N_det": N_det,
-                "conc_det": conc_det,
-            }
-        )
-
-    fragility_info = abm_results["fragility"]
-    print(f"\n--- Fragility Analysis ---")
+# ---------------------- Fragility output ---------------------- #
+fragility_info = abm_results.get("fragility", None)
+if fragility_info is not None:
+    print("\n--- Fragility Analysis ---")
     print(f"Mean Fragility: {fragility_info['mean']:.4f}")
+    print(f"Std  Fragility: {fragility_info['std']:.4f}")
     print(f"Per-run Fragility: {fragility_info['per_run']}")
 
-else:
-    for sc in scenarios:
-        abm_out = run_abm(config, [sc], seed=42)
-
-        all_runs = abm_out["all_trajectories"][0]  # shape (n_runs, steps)
-        mean_abm = all_runs.mean(axis=0)
-        std_abm = all_runs.std(axis=0)
-
-        N_det, conc_det = analytic_population_with_pk(
-            time,
-            initial_cells,
-            birth_rate,
-            death_rate,
-            sc["schedule"],
-            sc["alpha"],
-            hill_params,
-        )
-
-        results.append(
-            {
-                "name": sc["name"],
-                "alpha": sc["alpha"],
-                "schedule": sc["schedule"],
-                "mean": mean_abm,
-                "std": std_abm,
-                "N_det": N_det,
-                "conc_det": conc_det,
-            }
-        )
-
-# ========== PLOTTING ==========
+# ---------------------- Plotting ---------------------- #
 scenario_palette = [
-    "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown",
-    "tab:pink", "tab:gray", "tab:olive", "tab:cyan",
+    "tab:orange",
+    "tab:green",
+    "tab:red",
+    "tab:purple",
+    "tab:brown",
+    "tab:pink",
+    "tab:gray",
+    "tab:olive",
+    "tab:cyan",
 ]
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 10), sharex=False)
 
-# -------- (A) Tumour trajectory --------
+# (A) Tumour trajectory
 for i, res in enumerate(results):
     col = scenario_palette[i % len(scenario_palette)]
+
     ax1.plot(time, res["mean"], color=col, lw=2, label=f'{res["name"]} — ABM')
     ax1.fill_between(
         time,
@@ -128,38 +105,31 @@ for i, res in enumerate(results):
         time,
         res["N_det"],
         color=col,
-        ls="--",
+        linestyle="--",
         lw=2,
-        alpha=0.3,
+        alpha=0.35,
         label=f'{res["name"]} — Deterministic',
     )
-    for amt, dose_t in res["schedule"]:
-        ax1.axvline(dose_t, color=col, ls=":", alpha=0.3)
 
-# Panel label (left) + title (center)
+    for _, dose_t in res["schedule"]:
+        ax1.axvline(dose_t, color=col, linestyle=":", alpha=0.25)
+
 ax1.set_title(r"$\mathbf{(A)}$", loc="left", fontsize=12, pad=6)
-ax1.set_title("Tumour population: ABM vs Deterministic", loc="center", fontsize=13, pad=6)
-
+ax1.set_title(
+    "Tumour population: ABM vs Deterministic", loc="center", fontsize=13, pad=6
+)
 ax1.set_xlabel("Time (days)")
 ax1.set_ylabel("Tumour population (cells)")
 ax1.grid(True, alpha=0.3)
 ax1.legend(ncol=2, fontsize=9)
 
-# -------- (B) PK profiles --------
+# (B) PK profiles
 for i, res in enumerate(results):
     col = scenario_palette[i % len(scenario_palette)]
-    ax2.plot(
-        time,
-        res["conc_det"],
-        color=col,
-        lw=2,
-        label=f'{res["name"]}',
-    )
+    ax2.plot(time, res["conc_det"], color=col, lw=2, label=res["name"])
 
-# Panel label (left) + title (center)
 ax2.set_title(r"$\mathbf{(B)}$", loc="left", fontsize=12, pad=6)
 ax2.set_title("PK profiles (drug schedules)", loc="center", fontsize=12, pad=6)
-
 ax2.set_xlabel("Time (days)")
 ax2.set_ylabel("Drug concentration (mg/L)")
 ax2.grid(True, alpha=0.3)
@@ -178,28 +148,22 @@ param_lines = [
     "",
     "Hill parameters",
     "--------------",
-    f"E0 = {hill_params['E0']}",
-    f"E1 = {hill_params['E1']}",
-    f"C  = {hill_params['C']}",
-    f"n  = {hill_params['n']}",
+    f"K_kill = {hill_params.K_kill}",
+    f"C      = {hill_params.C}",
+    f"n      = {hill_params.n}",
+    "",
+    "Schedule parameters",
+    "-------------------",
+    f"x_bar        = {x_bar}",
+    f"sigma        = {sigma}",
+    f"n_cycles     = {n_cycles}",
+    f"cycle_length = {cycle_length}",
+    f"alpha        = {alpha_val}",
 ]
-
-if do_fragility_test:
-    param_lines += [
-        "",
-        "Schedule parameters",
-        "-------------------",
-        f"x_bar        = {x_bar}",
-        f"sigma        = {sigma}",
-        f"n_cycles     = {n_cycles}",
-        f"cycle_length = {cycle_length}",
-        f"alpha        = {alpha_val}",
-    ]
 
 param_text = "\n".join(param_lines)
 
 plt.tight_layout(rect=(0, 0, 0.82, 1.0))
-
 fig.text(
     0.84,
     0.95,
@@ -208,15 +172,12 @@ fig.text(
     ha="left",
     fontsize=8,
     family="monospace",
-    bbox=dict(
-        boxstyle="round",
-        facecolor="white",
-        edgecolor="0.8",
-        alpha=0.95,
-    ),
+    bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
 )
 
-plt.savefig(Path(__file__).parent / "exponential_trajectory.png", dpi=300)
+plt.savefig(
+    Path(__file__).parent / "Graphs/No_Resistance/exponential_trajectory.png", dpi=300
+)
 plt.show()
 
 print("\nSchedules compared:")
