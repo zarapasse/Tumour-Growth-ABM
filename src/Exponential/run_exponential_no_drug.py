@@ -69,9 +69,6 @@ param_lines = [
 
 param_text = "\n".join(param_lines)
 
-# Leave space on the right for the panel
-plt.tight_layout(rect=(0, 0, 0.82, 1.0))
-
 fig.text(
     0.84,  # x-position
     0.95,  # y-position
@@ -91,10 +88,12 @@ fig.text(
 plt.tight_layout(rect=(0, 0, 0.82, 1.0))
 outpath = (
     Path(__file__).parent
-    / "Graphs/No_Resistance/Exponential_validation_no_drug_competing_risks_largedt.png"
+    / "Graphs/No_Resistance/Exponential_validation_1_dt.png"
 )
+outpath.parent.mkdir(parents=True, exist_ok=True)
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-plt.show()
+#plt.show()
+plt.close(fig)
 
 # ---------------------- Diagnostics ---------------------- #
 print("\n--- No-drug validation ---")

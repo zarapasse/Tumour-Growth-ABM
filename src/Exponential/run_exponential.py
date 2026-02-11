@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 
-import numpy as np
 import matplotlib.pyplot as plt
 
 from utils import (
@@ -24,7 +23,7 @@ print("Running fragility test scenarios...")
 x_bar = 20
 n_doses_per_cycle = 2
 total_dose_per_cycle = x_bar * n_doses_per_cycle
-sigma = total_dose_per_cycle / 2
+sigma = x_bar / 2
 n_cycles = 4
 cycle_length = 12
 alpha_val = 1
@@ -178,7 +177,8 @@ fig.text(
 plt.savefig(
     Path(__file__).parent / "Graphs/No_Resistance/exponential_trajectory.png", dpi=300
 )
-plt.show()
+#plt.show()
+plt.close(fig)
 
 print("\nSchedules compared:")
 for res in results:
