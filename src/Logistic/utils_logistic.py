@@ -1,236 +1,228 @@
 import numpy as np
-from Logistic_Drug_Model import TumourModel
-from Logistic_Drug_Resistance import TumourResistantModel
+from Logistic_Model import HillParams, TumourModel, ResourceParams
+
+# from Logistic_Drug_Resistance import TumourResistantModel
 from scipy.optimize import curve_fit
+from scipy.integrate import solve_ivp
 
 
-def run_abm_logistic(config, scenarios, seed=1, compute_fragility=False):
-    """
-    Run the energy-based logistic ABM under multiple dosing scenarios.
+# -------------------- ABM + scenario utilities ------------------- #
+def build_resource_params(res_dict):
+    Emax = float(res_dict["energy_capacity"])
+    influx = float(res_dict["resource_influx"])
 
-    Returns dict with:
-        - mean_trajectories
-        - std_trajectories
-        - all_trajectories
-        - fragility (if compute_fragility=True)
-    """
-    np.random.seed(seed)
-
-    sim = config["simulation"]
-
-    # Load model parameters
-    initial_cells = sim["initial_cells"]
-    birth_rate = sim["birth_rate"]
-    death_rate = sim["death_rate"]
-    dt = sim["dt"]
-    steps = sim["steps"]
-    n_runs = sim["n_runs"]
-
-    initial_resources = sim["initial_resources"]
-    resource_influx = sim["resource_influx"]
-    energy_capacity = sim["energy_capacity"]
-
-    hill_params = config["hill_parameters"]
-
-    all_means = []
-    all_stds = []
-    all_runs_list = []
-
-    # For fragility: store total cells per scenario across runs
-    scenario_final_sizes = []
-
-    for sc in scenarios:
-
-        schedule = sc["schedule"]
-        alpha = sc["alpha"]
-
-        runs = []
-        for r in range(n_runs):
-            
-            print(f"Running scenario '{sc['name']}', run {r+1}/{n_runs}...")
-
-            model = TumourModel(
-                initial_cells=initial_cells,
-                birth_rate=birth_rate,
-                death_rate=death_rate,
-                dt=dt,
-                initial_resources=initial_resources,
-                resource_influx=resource_influx,
-                energy_capacity=energy_capacity,
-                alpha=alpha,
-                drug_schedule=schedule,
-                hill_params=hill_params,
-            )
-
-            traj = []
-            for _ in range(steps):
-                model.step()
-                traj.append(len(model.agents))
-
-            runs.append(traj)
-
-        runs = np.array(runs)
-        mean = runs.mean(axis=0)
-        std = runs.std(axis=0)
-
-        all_means.append(mean)
-        all_stds.append(std)
-        all_runs_list.append(runs)
-
-        scenario_final_sizes.append(runs[:, -1])  # last timestep
-
-    # ----- fragility calculation -----
-    if compute_fragility:
-        if len(scenarios) != 2:
-            raise ValueError(
-                "Fragility test needs exactly TWO scenarios (even/uneven)."
-            )
-
-        # fragility = mean(N_odd - N_even)
-        frag = scenario_final_sizes[1] - scenario_final_sizes[0]
-
-        return {
-            "mean_trajectories": all_means,
-            "std_trajectories": all_stds,
-            "all_trajectories": all_runs_list,
-            "fragility": {
-                "mean": np.mean(frag),
-                "per_run": frag,
-            },
-        }
-
-    return {
-        "mean_trajectories": all_means,
-        "std_trajectories": all_stds,
-        "all_trajectories": all_runs_list,
-    }
-
-
-def logistic_function(t, K, r, N0):
-    """Standard logistic ODE solution."""
-    return K / (1 + ((K - N0) / N0) * np.exp(-r * t))
-
-
-def logistic_fit(time, mean_cells):
-    """
-    Fit logistic curve to the ABM mean trajectory.
-    Returns (K, r, N0, fitted_curve).
-    """
-    K_guess = np.max(mean_cells) * 1.2
-    r_guess = 0.1
-    N0_guess = mean_cells[0]
-
-    try:
-        params, _ = curve_fit(
-            logistic_function,
-            time,
-            mean_cells,
-            p0=[K_guess, r_guess, N0_guess],
-            bounds=([0, 0, 0], [np.inf, np.inf, np.inf]),
-            maxfev=10000,
-        )
-        K, r, N0 = params
-        return K, r, N0, logistic_function(time, K, r, N0)
-    except Exception:
-        return None, None, None, None
-
-
-def analytic_logistic_with_pk(time, mean_cells):
-    """
-    For the logistic energy-based ABM,
-    the “analytic” comparator is simply the logistic fit.
-
-    This mirrors analytic_population_with_pk() in exponential ABM.
-    """
-    K, r, N0, fitted = logistic_fit(time, mean_cells)
-    return fitted
-
-
-def make_fragility_test_scenarios(
-    total_dose, n_doses, n_cycles, sigma, cycle_length, alpha
-):
-    """
-    Create two ABM scenarios for fragility analysis: even and uneven schedules.
-
-    Parameters:
-        total_dose (float): total dose per cycle
-        n_doses (int): number of doses per cycle
-        n_cycles (int): number of repeated cycles
-        sigma (float): additive deviation from mean for uneven schedule (>=0)
-        cycle_length (float): length of one cycle (time units)
-        alpha (float): PK decay rate (kept for API compatibility)
-
-    Returns:
-        list of dict: two scenario dicts (even and odd/uneven) ready for ABM
-    """
-
-    if n_doses <= 0:
-        raise ValueError("n_doses must be >= 1")
-
-    mean_dose = total_dose / n_doses
-    if sigma < 0:
-        raise ValueError("sigma must be non-negative")
-    if sigma > mean_dose:
-        raise ValueError(
-            f"sigma is too large (would produce negative doses). "
-            f"Require sigma <= mean_dose ({mean_dose})."
-        )
-
-    # ---- Even schedule ----
-    even_schedule = []
-    for c in range(n_cycles):
-        cycle_start = c * cycle_length
-        dose_amount = mean_dose
-        times = [cycle_start + i * (cycle_length / n_doses) for i in range(n_doses)]
-        even_schedule += [(dose_amount, t) for t in times]
-
-    # ---- Uneven / odd schedule using additive sigma ----
-    # Build deviations that sum to zero: +sigma, -sigma, +sigma, -sigma, ...
-    # If n_doses is odd, set the last deviation to 0 to keep sum exactly zero.
-    deviations = [sigma if i % 2 == 0 else -sigma for i in range(n_doses)]
-    if n_doses % 2 == 1:
-        deviations[-1] = 0.0
-
-    # Scaled doses = mean + deviation (guaranteed non-negative by check above)
-    odd_schedule = []
-    for c in range(n_cycles):
-        cycle_start = c * cycle_length
-        times = [cycle_start + i * (cycle_length / n_doses) for i in range(n_doses)]
-        doses = [mean_dose + d for d in deviations]
-        odd_schedule += list(zip(doses, times))
-
-    # ---- Package as ABM-ready scenario dicts ----
-    scenarios = [
-        {"name": "Even Schedule", "schedule": even_schedule, "alpha": alpha},
-        {"name": "Odd Schedule", "schedule": odd_schedule, "alpha": alpha},
-    ]
-
-    return scenarios
+    return ResourceParams(
+        energy_capacity=Emax,
+        resource_influx=influx,
+        division_threshold=res_dict["frac_division_threshold"] * Emax,
+        maintenance_cost=res_dict["frac_maintenance_cost"] * Emax,
+    )
 
 
 def process_config(config):
     sim_params = config["simulation"]
-    hill_params = config["hill_parameters"]
+    hill = config.get("hill_parameters", None)
+    res = config["resource_parameters"]
     initial_cells = sim_params["initial_cells"]
     birth_rate = sim_params["birth_rate"]
     death_rate = sim_params["death_rate"]
     dt = sim_params["dt"]
     steps = sim_params["steps"]
     n_runs = sim_params["n_runs"]
+    initial_resources = sim_params["initial_resources"]
+    p_mutation = sim_params["p_mutation"]
+    initial_resistant_fraction = sim_params["initial_resistant_fraction"]
+    initial_cell_energy = sim_params["initial_cell_energy"]
 
-    return initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params
+    hill_params = None
+    if hill is not None:
+        hill_params = HillParams(
+            K_kill=hill["K_kill"],
+            C=hill["C"],
+            n=hill["n"],
+        )
+
+    res_params = build_resource_params(config["resource_parameters"])
+
+    return (
+        initial_cells,
+        birth_rate,
+        death_rate,
+        dt,
+        steps,
+        n_runs,
+        hill_params,
+        res_params,
+        initial_resources,
+        initial_cell_energy,
+        p_mutation,
+        initial_resistant_fraction,
+    )
 
 
-def process_scenarios_config(config):
-    drug_params = config["drug"]
-    scenarios = []
-    if "schedule" in drug_params and isinstance(drug_params["schedule"], list):
-        for idx, sc in enumerate(drug_params["schedule"]):
-            name = sc.get("name", f"Schedule {idx+1}")
-            alpha = sc.get("alpha", drug_params.get("alpha"))
-            sched = [tuple(d) for d in sc.get("schedule", [])]
-            scenarios.append({"name": name, "schedule": sched, "alpha": alpha})
-    return scenarios
+# ------------------- Run ABM -------------------- #
+
+
+def run_abm_logistic(config, scenarios, seed=None, compute_fragility=False):
+
+    (
+        initial_cells,
+        birth_rate,
+        death_rate,
+        dt,
+        steps,
+        n_runs,
+        hill_params,
+        res_params,
+        initial_resources,
+        initial_cell_energy,
+        _,
+        _,
+    ) = process_config(config)
+
+    time = np.arange(steps + 1) * dt
+
+    mean_trajectories = []
+    std_trajectories = []
+    final_volumes = []
+    all_trajectories = []
+
+    # reproducibility
+    base_seed = seed if seed is not None else 0
+    run_seeds = [base_seed + r for r in range(n_runs)]
+
+    for sc in scenarios:
+        all_counts = np.zeros((n_runs, steps + 1), dtype=float)
+
+        for r in range(n_runs):
+            print(f"Running scenario '{sc['name']}', run {r+1}/{n_runs}")
+
+            m = TumourModel(
+                initial_cells=initial_cells,
+                birth_rate=birth_rate,
+                death_rate=death_rate,
+                dt=dt,
+                initial_resources=initial_resources,
+                initial_cell_energy=initial_cell_energy,
+                res_params=res_params,
+                alpha=sc["alpha"],
+                hill_params=hill_params,
+                drug_schedule=list(sc["schedule"]),
+                seed=run_seeds[r],
+            )
+
+            counts = [len(m.agents)]
+            for _ in range(steps):
+                m.step()
+                counts.append(len(m.agents))
+
+            all_counts[r] = counts
+
+        mean_trajectories.append(all_counts.mean(axis=0))
+        std_trajectories.append(all_counts.std(axis=0))
+        final_volumes.append(all_counts[:, -1])
+        all_trajectories.append(all_counts)
+
+    results = {
+        "scenarios": scenarios,
+        "mean_trajectories": mean_trajectories,
+        "std_trajectories": std_trajectories,
+        "all_trajectories": all_trajectories,
+        "time": time,
+    }
+
+    if compute_fragility and len(final_volumes) >= 2:
+        # same normalisation style as your exponential version
+        frag_per_run = (final_volumes[1] - final_volumes[0]) / initial_cells
+        results["fragility"] = {
+            "per_run": frag_per_run,
+            "mean": float(frag_per_run.mean()),
+            "std": float(frag_per_run.std()),
+        }
+
+    return results
+
+
+def make_fragility_test_scenarios(
+    total_dose_per_cycle, n_doses_per_cycle, n_cycles, sigma, cycle_length, alpha
+):
+    """
+    Build two scenarios (even vs uneven) over repeated treatment cycles.
+
+    - Even: every dose in a cycle is mean_dose = total_dose_per_cycle / n_doses_per_cycle
+    - Uneven: doses alternate mean_dose ± sigma, summing to the same total per cycle.
+
+    Returns:
+        [
+          {"name": "Even Schedule", "schedule": [...], "alpha": alpha},
+          {"name": "Odd Schedule",  "schedule": [...], "alpha": alpha},
+        ]
+    """
+
+    mean_dose = total_dose_per_cycle / n_doses_per_cycle
+
+    # dose times within a cycle
+    dt_dose = cycle_length / n_doses_per_cycle
+
+    # ---- even schedule ----
+    even_schedule = []
+    for c in range(n_cycles):
+        cycle_start = c * cycle_length
+        for i in range(n_doses_per_cycle):
+            even_schedule.append((mean_dose, cycle_start + i * dt_dose))
+
+    # ---- uneven schedule ----
+    deviations = [sigma if i % 2 == 0 else -sigma for i in range(n_doses_per_cycle)]
+    if n_doses_per_cycle % 2 == 1:
+        deviations[-1] = 0.0  # keep per-cycle total exactly the same
+
+    odd_schedule = []
+    for c in range(n_cycles):
+        cycle_start = c * cycle_length
+        for i, dev in enumerate(deviations):
+            odd_schedule.append((mean_dose + dev, cycle_start + i * dt_dose))
+
+    return [
+        {"name": "Even Schedule", "schedule": even_schedule, "alpha": alpha},
+        {"name": "Odd Schedule", "schedule": odd_schedule, "alpha": alpha},
+    ]
+
+
+# ------------------- Logistic fit helpers ------------------- #
+def logistic_function(t, K, r, N0):
+    """Standard logistic growth curve."""
+    N0 = max(N0, 1e-8)  # guard
+    return K / (1 + ((K - N0) / N0) * np.exp(-r * t))
+
+
+def fit_logistic_direct(t, N, K_guess=None):
+    """Fit logistic function to (t, N) using scipy curve_fit."""
+    if K_guess is None:
+        K_guess = max(np.max(N) * 1.1, 1.0)
+    N0_guess = max(N[0], 1e-6)
+    r_guess = 0.1
+
+    params, _ = curve_fit(
+        logistic_function,
+        t,
+        N,
+        p0=[K_guess, r_guess, N0_guess],
+        bounds=([0, 0, 0], [np.inf, np.inf, np.inf]),
+        maxfev=20000,
+    )
+    K, r, N0_fit = params
+    fit = logistic_function(t, K, r, N0_fit)
+    return K, r, N0_fit, fit
+
+
+def compute_auc(trajs, dt):
+    trajs = np.asarray(trajs, dtype=float)
+    if trajs.ndim == 1:
+        return float(np.trapz(trajs, dx=dt))
+    return np.trapz(trajs, dx=dt, axis=1)
+
+
+# ------------------- Continuum logistic + PK/PD comparator ------------------- #
 
 
 def deterministic_pk(time, schedule, alpha):
@@ -247,282 +239,253 @@ def deterministic_pk(time, schedule, alpha):
     return conc
 
 
-def run_abm_logistic_resistant(config, scenarios, seed=1, compute_fragility=False):
+def hill_kill_rate_scalar(c, hill_params):
+    """Scalar Hill kill term k(c)."""
+    if hill_params is None or c <= 0.0:
+        return 0.0
+    K_kill = float(hill_params.K_kill)
+    C = float(hill_params.C)
+    n = float(hill_params.n)
+
+    x_n = c**n
+    denom = x_n + (C**n)
+    if denom <= 0.0:
+        return 0.0
+    return float(K_kill * (x_n / denom))
+
+
+# def continuum_logistic_with_pkpd(time, N0, K, r, schedule, alpha, hill_params,
+#                                      method="RK45", rtol=1e-7, atol=1e-9):
+#     """
+#     Continuum logistic + drug solved with solve_ivp:
+
+#         dN/dt = r N (1 - N/K) - k(c(t)) N
+
+#     PK: conc(t) precomputed on `time` grid, then linearly interpolated during integration.
+#     PD: k(c) from Hill equation.
+
+#     Returns: N_sol, conc_grid, conc_used_grid, k_grid
+#     """
+#     time = np.asarray(time, dtype=float)
+#     t0, t1 = float(time[0]), float(time[-1])
+
+#     # PK on the same grid you plot
+#     conc_grid = deterministic_pk(time, schedule, alpha)
+
+#     # Linear interpolation of conc(t) using numpy.interp (fast, no extra deps)
+#     def conc_of_t(t):
+#         # clamp to [t0, t1] to avoid extrapolation weirdness
+#         if t <= t0:
+#             return float(conc_grid[0])
+#         if t >= t1:
+#             return float(conc_grid[-1])
+#         return float(np.interp(t, time, conc_grid))
+
+#     # ODE RHS
+#     def rhs(t, y):
+#         N = float(y[0])
+#         # Optional: prevent negative N feeding back into dynamics
+#         if N <= 0.0:
+#             return [0.0]
+
+#         c = conc_of_t(t)
+#         k = hill_kill_rate_scalar(c, hill_params)
+#         dNdt = r * N * (1.0 - N / K) - k * N
+#         return [dNdt]
+
+#     sol = solve_ivp(
+#         rhs,
+#         t_span=(t0, t1),
+#         y0=[float(N0)],
+#         t_eval=time,
+#         method=method,
+#         rtol=rtol,
+#         atol=atol,
+#         vectorized=False,
+#     )
+
+#     if not sol.success:
+#         raise RuntimeError(f"solve_ivp failed: {sol.message}")
+
+#     N_sol = sol.y[0]
+#     # keep outputs nonnegative for plotting/comparison
+#     N_sol = np.maximum(N_sol, 0.0)
+
+#     # For plotting the same “used” profiles on the grid
+#     conc_used = conc_grid
+#     k_grid = hill_kill_rate(conc_used, hill_params)
+
+#     return N_sol, conc_grid, conc_used, k_grid
+
+# def continuum_logistic_with_pkpd(time, dt, N0, K, r, schedule, alpha, hill_params):
+#     """
+#     Continuum logistic + drug:
+#         dN/dt = r N (1 - N/K) - k(x(t)) N
+
+#     PK: conc(t) from deterministic_pk(time, schedule, alpha)
+#     PD: k(conc) from hill_kill_rate, matching the ABM Hill parameters.
+
+#     Uses conc(t) at the current time grid (no one-step lag), matching the edited ABM.
+#     """
+#     conc = deterministic_pk(time, schedule, alpha)
+#     conc_used = conc
+
+#     k = hill_kill_rate(conc_used, hill_params)
+
+#     N = np.zeros_like(time, dtype=float)
+#     N[0] = float(N0)
+
+#     for j in range(1, len(time)):
+#         Nj = N[j - 1]
+#         growth = r * Nj * (1.0 - Nj / K)
+#         kill = k[j - 1] * Nj
+#         N[j] = max(0.0, Nj + dt * (growth - kill))
+
+#     return N, conc, conc_used, k
+
+
+def hill_kill_rate(conc, hill_params):
     """
-    Run the energy-based logistic ABM with resistance under multiple dosing scenarios.
-
-    Returns a dict with keys:
-        - mean_trajectories      : list of (steps, 2) arrays [Sensitive, Resistant]
-        - std_trajectories       : list of (steps, 2) arrays
-        - total_population       : list of dicts {mean, std, all}
-        - resistant_fraction    : list of dicts {mean, std, all}
-        - all_trajectories      : list of dicts with raw per-run trajectories
-        - fragility              : (optional) per-run and mean fragility
+    Saturating Hill kill term:
+        k_kill(c) = K_kill * c^n / (c^n + C^n)
     """
-    np.random.seed(seed)
+    K_kill = float(hill_params.K_kill)
+    C = float(hill_params.C)
+    n = float(hill_params.n)
 
-    sim = config["simulation"]
+    x_n = np.asarray(conc, dtype=float) ** n
+    denom = x_n + (C**n)
 
-    # ------------------ parameters ------------------ #
-    initial_cells     = sim["initial_cells"]
-    birth_rate        = sim["birth_rate"]
-    death_rate        = sim["death_rate"]
-    dt                = sim["dt"]
-    steps             = sim["steps"]
-    n_runs            = sim["n_runs"]
-    p_mutation        = sim["p_mutation"]
-    initial_resistant_fraction = sim.get("initial_resistant_fraction", 0.0)
+    return K_kill * (x_n / np.maximum(denom, 1e-12))
 
-    initial_resources = sim["initial_resources"]
-    resource_influx   = sim["resource_influx"]
-    energy_capacity   = sim["energy_capacity"]
 
-    hill_params = config["hill_parameters"]
+# ---------------- Utility helpers (Option B) ---------------- #
+def estimate_K_tail(N, frac_tail=0.2):
+    N = np.asarray(N, float)
+    tail = N[int((1 - frac_tail) * len(N)) :]
+    return float(np.mean(tail))
 
-    # ------------------ outputs ------------------ #
-    mean_trajectories = []
-    std_trajectories  = []
-    total_population  = []
-    resistant_fraction = []
-    all_trajectories  = []
 
-    # for fragility
-    scenario_final_sizes = []
+def fit_r_logit(time, N, K, low_frac=0.2, high_frac=0.8, eps=1e-6):
+    """
+    Fit r from log(N/(K-N)) = r t + c, using points where N is in [low_frac*K, high_frac*K]
+    to avoid near-0 and near-K noise.
+    """
+    t = np.asarray(time, float)
+    y = np.asarray(N, float)
 
-    # ======================================================
-    #               Loop over dosing scenarios
-    # ======================================================
-    for sc in scenarios:
+    lo = low_frac * K
+    hi = high_frac * K
+    m = (y > lo) & (y < hi)
 
-        schedule = sc["schedule"]
-        alpha    = sc["alpha"]
-
-        runs_sensitive = []
-        runs_resistant = []
-        runs_total     = []
-        runs_res_frac  = []
-
-        # ------------------ stochastic runs ------------------ #
-        for _ in range(n_runs):
-            
-            print(f"Running scenario '{sc['name']}', run {_+1}/{n_runs}...")
-
-            model = TumourResistantModel(
-                initial_cells     = initial_cells,
-                birth_rate        = birth_rate,
-                death_rate        = death_rate,
-                dt                = dt,
-                initial_resources = initial_resources,
-                resource_influx   = resource_influx,
-                energy_capacity   = energy_capacity,
-                alpha             = alpha,
-                p_mutation        = p_mutation,
-                drug_schedule     = schedule,
-                hill_params       = hill_params,
-                initial_resistant_fraction=initial_resistant_fraction,
-            )
-
-            for _ in range(steps):
-                model.step()
-
-            # extract Mesa DataCollector output
-            df = model.datacollector.get_model_vars_dataframe()
-
-            runs_sensitive.append(df["Sensitive"].values)
-            runs_resistant.append(df["Resistant"].values)
-            runs_total.append(df["Total"].values)
-            runs_res_frac.append(df["ResistantFraction"].values)
-
-        # ------------------ convert to arrays ------------------ #
-        runs_sensitive = np.array(runs_sensitive)   # (n_runs, steps)
-        runs_resistant = np.array(runs_resistant)
-        runs_total     = np.array(runs_total)
-        runs_res_frac  = np.array(runs_res_frac)
-
-        # ------------------ statistics ------------------ #
-        mean_sensitive = runs_sensitive.mean(axis=0)
-        std_sensitive  = runs_sensitive.std(axis=0)
-
-        mean_resistant = runs_resistant.mean(axis=0)
-        std_resistant  = runs_resistant.std(axis=0)
-
-        mean_total = runs_total.mean(axis=0)
-        std_total  = runs_total.std(axis=0)
-
-        mean_res_frac = runs_res_frac.mean(axis=0)
-        std_res_frac  = runs_res_frac.std(axis=0)
-
-        # ------------------ store ------------------ #
-        mean_trajectories.append(
-            np.vstack([mean_sensitive, mean_resistant]).T
+    if m.sum() < 6:
+        raise ValueError(
+            "Not enough points in the mid-range to identify r. Adjust low/high_frac."
         )
-        std_trajectories.append(
-            np.vstack([std_sensitive, std_resistant]).T
-        )
 
-        total_population.append({
-            "mean": mean_total,
-            "std": std_total,
-            "all": runs_total,
-        })
-
-        resistant_fraction.append({
-            "mean": mean_res_frac,
-            "std": std_res_frac,
-            "all": runs_res_frac,
-        })
-
-        all_trajectories.append({
-            "sensitive": runs_sensitive,
-            "resistant": runs_resistant,
-            "total": runs_total,
-            "resistant_fraction": runs_res_frac,
-        })
-
-        scenario_final_sizes.append(runs_total[:, -1])
-
-    # ======================================================
-    #                     Fragility
-    # ======================================================
-    if compute_fragility:
-        if len(scenarios) != 2:
-            raise ValueError("Fragility requires exactly two scenarios.")
-
-        frag = scenario_final_sizes[1] - scenario_final_sizes[0]
-
-        return {
-            "mean_trajectories": mean_trajectories,
-            "std_trajectories": std_trajectories,
-            "total_population": total_population,
-            "resistant_fraction": resistant_fraction,
-            "all_trajectories": all_trajectories,
-            "fragility": {
-                "mean": np.mean(frag),
-                "per_run": frag,
-            },
-        }
-
-    return {
-        "mean_trajectories": mean_trajectories,
-        "std_trajectories": std_trajectories,
-        "total_population": total_population,
-        "resistant_fraction": resistant_fraction,
-        "all_trajectories": all_trajectories,
-    }
-    
-    
-    
-    
-    
-    
-    import numpy as np
-
-def hill_equation(drug_conc, hill_params):
-    """
-    Match TumourModel.hill_equation exactly:
-    H(x) = E0 + (x^n (E1 - E0)) / (x^n + C^n)
-    """
-    E0 = hill_params["E0"]
-    E1 = hill_params["E1"]
-    C  = hill_params["C"]
-    n  = hill_params["n"]
-
-    drug_conc = np.asarray(drug_conc, dtype=float)
-
-    kill = np.empty_like(drug_conc)
-    kill[:] = E0
-
-    pos = drug_conc > 0
-    x = drug_conc[pos]
-    kill[pos] = E0 + (x**n * (E1 - E0)) / (x**n + C**n)
-
-    return kill
+    y_clip = np.clip(y[m], eps, K - eps)
+    z = np.log(y_clip / (K - y_clip))
+    r, c = np.polyfit(t[m], z, 1)
+    return float(r), float(c)
 
 
-def continuum_logistic_with_pkpd(time, dt, N0, K, r, schedule, alpha, hill_params, lag_one_step=True):
-    """
-    Continuum logistic + drug:
-        dN/dt = r N (1 - N/K) - k(x(t)) N
-
-    Uses deterministic_pk(time, schedule, alpha) for PK
-    Uses hill_equation(...) matched to your ABM for PD
-
-    lag_one_step=True replicates the ABM detail that p_death uses the previous
-    timestep's stored drug_conc ("current_drug_conc").
-    """
-    # PK concentration profile at the time grid
-    conc = deterministic_pk(time, schedule, alpha)
-
-    # Match ABM's one-step lag: at step j, ABM uses conc from previous update.
-    # In ABM: step 0 uses 0, then updates conc at t=0 for next step.
-    if lag_one_step:
-        conc_used = np.zeros_like(conc)
-        conc_used[1:] = conc[:-1]
-    else:
-        conc_used = conc
-
-    # PD kill rate
-    k = hill_equation(conc_used, hill_params)
-
-    N = np.zeros_like(time, dtype=float)
-    N[0] = float(N0)
-
-    for j in range(1, len(time)):
-        Nj = N[j - 1]
-        growth = r * Nj * (1.0 - Nj / K)
-        kill   = k[j - 1] * Nj
-        N[j] = max(0.0, Nj + dt * (growth - kill))
-
-    return N, conc, conc_used, k
-
-
-
-def set_panel_title(ax, label, title):
-    ax.set_title(
-        rf"$\mathbf{{({label})}}$ {title}",
-        loc="left",
-        fontsize=12,
-        pad=6,
-    )
-    
-    
-    
-    from scipy.optimize import curve_fit
 import numpy as np
+from scipy.integrate import solve_ivp
 
-def logistic_function(t, K, r, N0):
-    return K / (1 + ((K - N0) / N0) * np.exp(-r * t))
 
-def logistic_fit_windowed(time, mean_cells, t_start=10.0):
+def pk_conc_analytic(t, schedule, alpha):
     """
-    Fit logistic curve using only time >= t_start, but return the fitted curve
-    over the FULL time array for plotting.
+    Exact PK concentration at time t from bolus doses with exponential decay.
+    schedule entries are (amount, t_dose).
     """
-    mask = time >= t_start
-    t_fit = time[mask]
-    y_fit = mean_cells[mask]
+    if not schedule:
+        return 0.0
 
-    # shift time so exponentials are well-conditioned
-    t0 = t_fit[0]
-    t_fit_shift = t_fit - t0
+    if alpha == 0.0:
+        # no decay => stepwise accumulation
+        return float(sum(amount for amount, t_dose in schedule if t >= t_dose))
 
-    # initial guesses
-    K_guess = np.max(y_fit) * 1.05
-    r_guess = 0.1
-    N0_guess = max(y_fit[0], 1e-6)
+    total = 0.0
+    for amount, t_dose in schedule:
+        if t >= t_dose:
+            total += amount * np.exp(-alpha * (t - t_dose))
+    return float(total)
 
-    params, _ = curve_fit(
-        logistic_function,
-        t_fit_shift,
-        y_fit,
-        p0=[K_guess, r_guess, N0_guess],
-        bounds=([0, 0, 0], [np.inf, np.inf, np.inf]),
-        maxfev=20000,
+
+def hill_kill_rate_scalar(c, hill_params):
+    """Scalar Hill kill term k(c)."""
+    if hill_params is None or c <= 0.0:
+        return 0.0
+    K_kill = float(hill_params.K_kill)
+    C = float(hill_params.C)
+    n = float(hill_params.n)
+
+    x_n = c**n
+    denom = x_n + (C**n)
+    if denom <= 0.0:
+        return 0.0
+    return float(K_kill * (x_n / denom))
+
+
+def continuum_logistic_with_pkpd(
+    time,
+    N0,
+    K,
+    r,
+    schedule,
+    alpha,
+    hill_params,
+    method="RK45",
+    rtol=1e-7,
+    atol=1e-9,
+):
+    """
+    Logistic + PK/PD solved with solve_ivp, computing PK analytically inside RHS.
+
+        dN/dt = r N (1 - N/K) - k(c(t)) N
+
+    Returns:
+        N_sol (len(time)),
+        conc_grid (len(time))  -- conc(t) evaluated on time grid for plotting
+        conc_used_grid (same as conc_grid here),
+        k_grid (len(time))     -- kill term evaluated on grid for plotting
+    """
+    time = np.asarray(time, dtype=float)
+    t0, t1 = float(time[0]), float(time[-1])
+
+    # RHS for solve_ivp
+    def rhs(t, y):
+        N = float(y[0])
+        if N <= 0.0:
+            return [0.0]  # keep it at 0 once extinct
+
+        c = pk_conc_analytic(t, schedule, alpha)
+        k = hill_kill_rate_scalar(c, hill_params)
+
+        dNdt = r * N * (1.0 - N / K) - k * N
+        return [dNdt]
+
+    sol = solve_ivp(
+        rhs,
+        t_span=(t0, t1),
+        y0=[float(N0)],
+        t_eval=time,
+        method=method,
+        rtol=rtol,
+        atol=atol,
     )
-    K, r, N0 = params
 
-    # build fitted curve over full time array (using same time shift convention)
-    full_shift = time - t0
-    fitted_full = logistic_function(full_shift, K, r, N0)
+    if not sol.success:
+        raise RuntimeError(f"solve_ivp failed: {sol.message}")
 
-    return K, r, N0, fitted_full
+    N_sol = np.maximum(sol.y[0], 0.0)
+
+    # For plotting panel (B) and optional debugging
+    conc_grid = np.array(
+        [pk_conc_analytic(t, schedule, alpha) for t in time], dtype=float
+    )
+    k_grid = np.array(
+        [hill_kill_rate_scalar(c, hill_params) for c in conc_grid], dtype=float
+    )
+
+    return N_sol, conc_grid, conc_grid, k_grid

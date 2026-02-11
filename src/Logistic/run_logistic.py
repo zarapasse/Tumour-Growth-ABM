@@ -1,16 +1,16 @@
-import matplotlib.pyplot as plt
-import numpy as np
 import json
+import copy
 from pathlib import Path
+
+import matplotlib.pyplot as plt
 
 from utils_logistic import (
     make_fragility_test_scenarios,
-    process_scenarios_config,
     process_config,
     run_abm_logistic,
-    logistic_fit,
     continuum_logistic_with_pkpd,
-    set_panel_title,
+    estimate_K_tail,
+    fit_r_logit,
 )
 
 # ---------------- Load Config ---------------- #
@@ -18,124 +18,119 @@ CONFIG_PATH = Path(__file__).parent / "config_logistic.json"
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
-do_fragility_test = True
-
-
 # ---------------- Build scenarios ---------------- #
-if do_fragility_test:
-    print("Running fragility test for logistic ABM...")
+x_bar = 20
+n_doses_per_cycle = 2
+total_dose_per_cycle = x_bar * n_doses_per_cycle
+sigma = x_bar / 2
+n_cycles = 4
+cycle_length = 12
+alpha_val = 1
 
-    x_bar = 20
-    n_doses_per_cycle = 2
-    total_dose_per_cycle = x_bar * n_doses_per_cycle
-    sigma = total_dose_per_cycle / 2
-    n_cycles = 4
-    cycle_length = 12
-    alpha_val = 1
+scenarios = make_fragility_test_scenarios(
+    total_dose_per_cycle,
+    n_doses_per_cycle,
+    n_cycles,
+    sigma,
+    cycle_length,
+    alpha_val,
+)
 
-    scenarios = make_fragility_test_scenarios(
-        total_dose_per_cycle,
-        n_doses_per_cycle,
-        n_cycles,
-        sigma,
-        cycle_length,
-        alpha_val,
-    )
-    is_fragility = True
+# ---------------------- Run ABM ---------------------- #
+(
+    initial_cells,
+    birth_rate,
+    death_rate,
+    dt,
+    steps,
+    n_runs,
+    hill_params,
+    res_params,
+    initial_resources,
+    initial_cell_energy,
+    _,
+    _,
+) = process_config(config)
 
-else:
-    scenarios = process_scenarios_config(config)
-    is_fragility = False
+abm_results = run_abm_logistic(config, scenarios, seed=42)
+time = abm_results["time"]
 
+# ---------------------- Run ABM (no-drug baseline for r,K) ---------------------- #
+print("\nComputing NO-DRUG baseline (for K)...")
 
-# Extract config parameters for baseline computation
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
-time = np.arange(steps) * dt
+baseline_scenario = [{"name": "No Drug", "schedule": [], "alpha": 0.0}]
+cfg = copy.deepcopy(config)
+cfg["simulation"]["n_runs"] = 10
 
+# ---- 1) Estimate K from saturated no-drug run ----
+K_fit_results = run_abm_logistic(cfg, baseline_scenario, seed=42)
+time = K_fit_results["time"]
+mean_no_drug = K_fit_results["mean_trajectories"][0]
 
+K0 = estimate_K_tail(mean_no_drug, frac_tail=0.2)
 
+# ---- 2) Estimate r from low-N no-drug run ----
+cfg["simulation"]["initial_cells"] = 30
 
-# ---------------- Compute NO-DRUG baseline ---------------- #
-print("\nComputing NO-DRUG baseline...")
+r_fit_results = run_abm_logistic(cfg, baseline_scenario, seed=42)
 
-baseline_scenario = [{
-    "name": "No Drug",
-    "schedule": [],
-    "alpha": 0.0,
-}]
+mean_lowN = r_fit_results["mean_trajectories"][0]
+time_lowN = r_fit_results["time"]
 
-baseline_results = run_abm_logistic(config, baseline_scenario, seed=42)
+r, _ = fit_r_logit(time_lowN, mean_lowN, K0, low_frac=0.2, high_frac=0.8)
+print("K0 (saturated run):", K0)
+print("r0 (low-N run):", r)
 
-mean_no_drug = baseline_results["mean_trajectories"][0]
-std_no_drug  = baseline_results["std_trajectories"][0]
-
-# Fit logistic curve to no-drug mean trajectory
-K0, r0, N0_0, baseline_fit = logistic_fit(time, mean_no_drug)
-
-print(f"Baseline Logistic Fit: K={K0:.3f}, r={r0:.3f}, N0={N0_0:.1f}")
-
-
-
-
-
-# ---------------- Run ABM ---------------- #
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
-time = np.arange(steps) * dt
-
-
-abm_results = run_abm_logistic(config, scenarios, seed=42, compute_fragility=True)
-
-# ---------------- Collect results ---------------- #
+# ---------------------- Build deterministic + collect results ---------------------- #
 results = []
-
 for i, sc in enumerate(scenarios):
-
     mean_abm = abm_results["mean_trajectories"][i]
-    std_abm  = abm_results["std_trajectories"][i]
+    std_abm = abm_results["std_trajectories"][i]
 
-    # analytic comparator: logistic fit of NO-DRUG baseline
-    N_det, conc_det, conc_used, k_det = continuum_logistic_with_pkpd(
+    N_det, conc_det, _, _ = continuum_logistic_with_pkpd(
         time=time,
-        dt=dt,
-        N0=mean_no_drug[0],     # match ABM mean initial
+        N0=mean_abm[0],
         K=K0,
-        r=r0,
+        r=r,
         schedule=sc["schedule"],
         alpha=sc["alpha"],
         hill_params=hill_params,
-        lag_one_step=True,      # IMPORTANT: match ABM
     )
-    results.append({
-        "name": sc["name"],
-        "schedule": sc["schedule"],
-        "alpha": sc["alpha"],
-        "mean": mean_abm,
-        "std": std_abm,
-        "N_det": N_det,
-        "conc_det": conc_det,
-    })
-    
-    
-    
-    
-    
-    
+
+    results.append(
+        {
+            "name": sc["name"],
+            "schedule": sc["schedule"],
+            "alpha": sc["alpha"],
+            "mean": mean_abm,
+            "std": std_abm,
+            "N_det": N_det,
+            "conc_det": conc_det,
+        }
+    )
+
+
 # ------------------- Plotting ------------------- #
 scenario_palette = [
-    "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown",
-    "tab:pink", "tab:gray", "tab:olive", "tab:cyan"
+    "tab:orange",
+    "tab:green",
+    "tab:red",
+    "tab:purple",
+    "tab:brown",
+    "tab:pink",
+    "tab:gray",
+    "tab:olive",
+    "tab:cyan",
 ]
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 10))
 
 
-# ===================== TOP: Tumour Trajectories =====================
+# ===== TOP: Tumour trajectories =====
 for i, res in enumerate(results):
     col = scenario_palette[i % len(scenario_palette)]
 
-    ax1.plot(time, res["mean"], lw=2, color=col,
-             label=f'{res["name"]} — ABM')
-
+    ax1.plot(time, res["mean"], lw=2, color=col, label=f'{res["name"]} — ABM')
     ax1.fill_between(
         time,
         res["mean"] - res["std"],
@@ -143,116 +138,94 @@ for i, res in enumerate(results):
         color=col,
         alpha=0.1,
     )
-    
-    # continuum logistic + drug comparator
+
     ax1.plot(
         time,
         res["N_det"],
         ls="--",
         lw=2,
         color=col,
-        alpha=0.4,
-        label=f'{res["name"]} — logistic',
+        alpha=0.5,
+        label=f'{res["name"]} — logistic+PKPD',
     )
 
-    # dosing lines
-    for amt, t_dose in res["schedule"]:
-        ax1.axvline(t_dose, color=col, ls=":", alpha=0.3)
-    
+    for _, t_dose in res["schedule"]:
+        ax1.axvline(t_dose, color=col, ls=":", alpha=0.25)
 
-# Panel label (left-aligned)
-ax1.set_title(r"$\mathbf{(A)}$", loc="left", fontsize=12, pad=6)
-
-# Main title (centered)
-ax1.set_title(
-    "Tumour Population: Resource-Dependent ABM",
-    loc="center",
-    fontsize=13,
-    pad=6,
-)
-
-
+ax1.text(0.0, 1.02, r"$\mathbf{(A)}$", transform=ax1.transAxes, ha="left", va="bottom")
+ax1.set_title("Tumour Population: Resource-Dependent ABM", fontsize=13)
 ax1.set_xlabel("Time (days)")
 ax1.set_ylabel("Tumour Population (cells)")
 ax1.grid(alpha=0.3)
 ax1.legend(ncol=2, fontsize=9)
 
-
-
-
-
-# ===================== BOTTOM: PK Profiles =====================
+# ===== BOTTOM: PK profiles =====
 for i, res in enumerate(results):
     col = scenario_palette[i % len(scenario_palette)]
+    ax2.plot(time, res["conc_det"], lw=2, color=col, label=f'{res["name"]}')
 
-    ax2.plot(
-        time,
-        res["conc_det"],
-        lw=2,
-        color=col,
-        label=f'{res["name"]}'
-    )
-
-
-# Panel label (left-aligned)
-ax2.set_title(r"$\mathbf{(B)}$", loc="left", fontsize=12, pad=6)
-
-# Main title (centered)
-ax2.set_title(
-    "Pharmacokinetic Drug Concentration Profiles",
-    loc="center",
-    fontsize=12,
-    pad=6,
-)
+ax2.text(0.0, 1.02, r"$\mathbf{(B)}$", transform=ax2.transAxes, ha="left", va="bottom")
+ax2.set_title("Pharmacokinetic Drug Concentration Profiles", fontsize=12)
 ax2.set_xlabel("Time (days)")
 ax2.set_ylabel("Drug Concentration (mg/L)")
 ax2.grid(alpha=0.3)
 ax2.legend(ncol=2, fontsize=9)
 
-
 # ----------------- parameter info box ----------------- #
-param_lines = [
-    "Simulation parameters",
-    "----------------------",
-    f"initial_cells = {initial_cells}",
-    f"birth_rate   = {birth_rate}",
-    f"death_rate   = {death_rate}",
-    f"dt           = {dt}",
-    f"steps        = {steps}",
-    f"n_runs       = {n_runs}",
-    "Hill parameters:",
-    "----------------------",
-    f"  E0: {hill_params['E0']}",
-    f"  E1: {hill_params['E1']}",
-    f"  C:  {hill_params['C']}",
-    f"  n:  {hill_params['n']}",
-    "Logistic Fit (No Drug):",
-    "----------------------",
-    f"K:  {K0:.3f}",
-    f"r:  {r0:.3f}",
-    f"N0: {N0_0:.1f}",
+panel_lines = [
+    "Sweep parameters",
+    "----------------",
+    f"alpha         = {alpha_val}",
+    f"n_cycles      = {n_cycles}",
+    f"cycle_length  = {cycle_length}",
+    f"doses/cycle   = {n_doses_per_cycle}",
+    "",
+    "Model parameters",
+    "-----------",
+    f"initial_cells       = {initial_cells}",
+    f"birth_rate          = {birth_rate}",
+    f"death_rate          = {death_rate}",
+    f"dt                  = {dt}",
+    f"steps               = {steps}",
+    f"n_runs              = {n_runs}",
+    f"initial_resources   = {initial_resources}",
+    f"initial_cell_energy = {initial_cell_energy}",
+    "",
+    "Resource parameters",
+    "----------",
+    f"Energy_capacity    = {res_params.energy_capacity}",
+    f"resource_influx    = {res_params.resource_influx}",
+    "",
+    "Hill parameters",
+    "----------",
+    f"K_kill = {hill_params.K_kill}",
+    f"C      = {hill_params.C}",
+    f"n      = {hill_params.n}",
 ]
 
-param_text = "\n".join(param_lines)
+param_text = "\n".join(panel_lines)
 
-# Reserve space on the right ONCE
 plt.tight_layout(rect=(0, 0, 0.82, 1.0))
-
 fig.text(
-    0.84,          # x-position (outside axes)
-    0.98,          # y-position (top-aligned)
+    0.84,
+    0.98,
     param_text,
     va="top",
     ha="left",
     fontsize=8,
     family="monospace",
-    bbox=dict(
-        boxstyle="round",
-        facecolor="white",
-        edgecolor="0.8",
-        alpha=0.95,
-    ),
+    bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
+)
+out_path = (
+    Path(__file__).parent
+    / "Graphs"
+    / "No_Resistance"
+    / f"logistic_abm_trajectories_{initial_cells}_cells_{n_runs}_runs_{x_bar}.png"
 )
 
-plt.savefig(Path(__file__).parent / "logistic_abm_trajectories_continuum.png", dpi=300)
+out_path.parent.mkdir(parents=True, exist_ok=True)
+
+plt.savefig(out_path, dpi=300)
 plt.show()
+# Close figure when running on command line
+# plt.close()

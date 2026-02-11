@@ -1,23 +1,27 @@
 {
   "simulation": {
-    "initial_cells": 450,
+    "initial_cells": 600,
     "birth_rate": 0.2,
     "death_rate": 0.1,
     "dt": 0.1,
-    "steps": 500,
-    "n_runs": 250,
+    "steps": 480,
+    "n_runs": 2,
     "p_mutation": 0.01,
+    "initial_resources": 0,
+    "initial_resistant_fraction": 0.05,
+    "initial_cell_energy":8.0
+  },
 
-    "initial_resources": 100,
-    "resource_influx": 100,
-    "energy_capacity": 10,
+  "resource_parameters": {
+    "energy_capacity": 10.0,
+    "resource_influx": 100.0,
 
-    "initial_resistant_fraction": 0.05
+    "frac_division_threshold": 0.5,
+    "frac_maintenance_cost": 0.01
   },
 
   "hill_parameters": {
-    "E0": 0.0,
-    "E1": 1.0,
+    "K_kill": 1,
     "C": 35.0,
     "n": 3.0
   }
