@@ -1,175 +1,151 @@
-import numpy as np
+"""
+Fragility vs mean dose x_bar (LOGISTIC ABM, Resistance) — ABM only
+
+Fragility metric:
+    F = (V_odd - V_even) / V0
+as a function of mean dose per administration x_bar.
+
+Compares:
+- ABM fragility computed from stochastic simulations (mean ± 1 SD across runs)
+"""
+
 import json
 from pathlib import Path
+
+import numpy as np
 import matplotlib.pyplot as plt
 
 from utils_logistic import (
-    run_abm_logistic,
-    run_abm_logistic_resistant,
-    make_fragility_test_scenarios,
     process_config,
+    make_fragility_test_scenarios,
+    run_abm_resistant_logistic,
 )
 
-# ---------------- Load Config ---------------- #
+# ----------------- Load config ----------------- #
 CONFIG_PATH = Path(__file__).parent / "config_logistic.json"
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
-# ---------------- Sweep parameters ---------------- #
-x_bar_values = np.arange(10, 100, 5)
-
+# ----------------- Sweep settings ----------------- #
 n_doses_per_cycle = 2
 n_cycles = 4
 cycle_length = 12
 alpha_val = 1.0
 
-sigma_fixed = 7.0
-target_frac_K = 0.05
-
-base_seed = 42  # reproducibility
-
-# ---------------- Helper: set steps from horizon ---------------- #
-def set_horizon_steps(cfg, t_end):
-    dt_local = cfg["simulation"]["dt"]
-    cfg["simulation"]["steps"] = int(t_end / dt_local) + 1
-
-# ================================================================
-# 1) Estimate K from NO-DRUG logistic ABM (plateau, no fitting)
-# ================================================================
-
-# run long enough to reach steady state
-dt0 = config["simulation"]["dt"]
-t_end_baseline = max(30 * cycle_length, config["simulation"]["steps"] * dt0)
-set_horizon_steps(config, t_end_baseline)
-
-baseline_out = run_abm_logistic(
-    config,
-    [{"name": "No Drug", "schedule": [], "alpha": 0.0}],
-    seed=base_seed,
-)
-
-mean_no_drug = baseline_out["mean_trajectories"][0]
-
-# plateau estimate: last 20% (min 10 points)
-tail_n = max(10, int(0.2 * len(mean_no_drug)))
-tail = mean_no_drug[-tail_n:]
-
-K0 = float(np.median(tail))
-if not np.isfinite(K0) or K0 <= 0:
-    raise RuntimeError("Plateau-based K estimate failed.")
-
-# set initial condition as fraction of K
-config["simulation"]["initial_cells"] = int(target_frac_K * K0)
-
-print(
-    f"[baseline] Estimated K ≈ {K0:.1f}, "
-    f"initial_cells = {config['simulation']['initial_cells']} "
-    f"({target_frac_K:.2f}K)"
-)
-
-# ================================================================
-# 2) Set horizon for ACTUAL fragility sweep
-# ================================================================
-
 t_end = n_cycles * cycle_length
-set_horizon_steps(config, t_end)
 
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
-time = np.arange(steps) * dt
+dt = float(config["simulation"]["dt"])
+steps = int(round(t_end / dt))
+config["simulation"]["steps"] = steps
 
-# ================================================================
-# 3) Sweep fragility vs mean dose
-# ================================================================
+(
+    initial_cells,
+    birth_rate,
+    death_rate,
+    dt,
+    steps,
+    n_runs,
+    hill_params,
+    res_params,
+    initial_resources,
+    initial_cell_energy,
+    p_mutation,
+    initial_resistant_fraction,
+) = process_config(config)
 
-frag_mean = []
-frag_std = []
+x_bar_values = np.arange(10, 100, 2.5)
 
-for j, x_bar in enumerate(x_bar_values):
-    print(f"Computing fragility for x_bar = {x_bar}...")
+# Store values
+F_abm_mean = []
+F_abm_std = []
 
+# ----------------- Main loop ----------------- #
+for x_bar in x_bar_values:
     total_dose_per_cycle = x_bar * n_doses_per_cycle
-
-    # ensure no negative doses
-    sigma = min(sigma_fixed, 0.95 * x_bar)
+    sigma = x_bar / 2.0  # Taking variability of half mean dose
 
     scenarios = make_fragility_test_scenarios(
-        total_dose=total_dose_per_cycle,
-        n_doses=n_doses_per_cycle,
+        total_dose_per_cycle=total_dose_per_cycle,
+        n_doses_per_cycle=n_doses_per_cycle,
         n_cycles=n_cycles,
         sigma=sigma,
         cycle_length=cycle_length,
         alpha=alpha_val,
     )
 
-    out = run_abm_logistic_resistant(
-        config,
-        scenarios,
-        seed=base_seed + j,
-        compute_fragility=True,
+    abm_out = run_abm_resistant_logistic(
+        config, scenarios, seed=42, compute_fragility=True
     )
 
-    frag_per_run = out["fragility"]["per_run"] / float(initial_cells)
+    per_run = np.asarray(abm_out["fragility"]["per_run"], dtype=float)
+    F_abm_mean.append(float(per_run.mean()))
+    F_abm_std.append(float(per_run.std(ddof=1)) if per_run.size > 1 else 0.0)
 
-    frag_mean.append(frag_per_run.mean())
-    frag_std.append(frag_per_run.std(ddof=1) if frag_per_run.size > 1 else 0.0)
+F_abm_mean = np.asarray(F_abm_mean, dtype=float)
+F_abm_std = np.asarray(F_abm_std, dtype=float)
 
-frag_mean = np.asarray(frag_mean)
-frag_std = np.asarray(frag_std)
+# ----------------- Plot ----------------- #
+fig, ax = plt.subplots(figsize=(10.5, 6.5))
 
-# ================================================================
-# 4) Plot
-# ================================================================
-
-fig, ax = plt.subplots(figsize=(12, 7))
-
-ax.plot(x_bar_values, frag_mean, lw=2, label="ABM mean", color="blue")
+ax.plot(x_bar_values, F_abm_mean, lw=2, label="ABM mean", color="blue")
 ax.fill_between(
     x_bar_values,
-    frag_mean - frag_std,
-    frag_mean + frag_std,
+    F_abm_mean - F_abm_std,
+    F_abm_mean + F_abm_std,
     alpha=0.15,
-    color="blue",
     label="ABM ± SD",
+    color="blue",
 )
 
-ax.axhline(0, ls="--", lw=1)
-ax.set_title("Fragility vs mean dose (resistant logistic ABM)")
-ax.set_xlabel(r"Mean dose $\bar{x}$")
+ax.axhline(0.0, lw=1, ls="--")
+ax.set_xlabel(r"Mean dose $\bar{x}$ (mg/L)")
 ax.set_ylabel("Fragility")
+ax.set_title(f"Fragility vs mean dose (Logistic ABM, {n_cycles} cycles - Resistant)")
 ax.grid(True, alpha=0.3)
-ax.legend()
-
+ax.legend(fontsize=9)
 # ---------------- Side parameter panel ---------------- #
 panel_lines = [
-    "Fragility sweep",
-    "------------------------------",
+    "Sweep parameters",
+    "----------------",
     f"alpha         = {alpha_val}",
     f"n_cycles      = {n_cycles}",
     f"cycle_length  = {cycle_length}",
     f"doses/cycle   = {n_doses_per_cycle}",
+    f"t_end         = {t_end}",
     "",
-    "Model params",
-    "------------",
-    f"birth_rate    = {birth_rate}",
-    f"death_rate    = {death_rate}",
-    f"dt, steps     = {dt}, {steps}",
-    f"n_runs        = {n_runs}",
-    f"p_mutation    = {config['simulation']['p_mutation']}",
-    f"initial_resistant_fraction = {config['simulation'].get('initial_resistant_fraction', 'N/A')}",
+    "Model parameters",
+    "-----------",
+    f"initial_cells       = {initial_cells}",
+    f"birth_rate          = {birth_rate}",
+    f"death_rate          = {death_rate}",
+    f"dt                  = {dt}",
+    f"steps               = {steps}",
+    f"n_runs              = {n_runs}",
+    f"initial_resources   = {initial_resources}",
+    f"initial_cell_energy = {initial_cell_energy}",
     "",
-    "Hill params",
+    "Resistance",
     "----------",
-    f"E0 = {hill_params['E0']}",
-    f"E1 = {hill_params['E1']}",
-    f"C  = {hill_params['C']}",
-    f"n  = {hill_params['n']}",
+    f"p_mutation              = {p_mutation}",
+    f"initial_resistant_frac  = {initial_resistant_fraction}",
+    "",
+    "Resource parameters",
+    "----------",
+    f"Energy_capacity    = {res_params.energy_capacity}",
+    f"resource_influx    = {res_params.resource_influx}",
+    "",
+    "Hill parameters",
+    "----------",
+    f"K_kill = {hill_params.K_kill}",
+    f"C      = {hill_params.C}",
+    f"n      = {hill_params.n}",
 ]
-
 panel_text = "\n".join(panel_lines)
 
 plt.tight_layout(rect=(0, 0, 0.82, 1.0))
 fig.text(
-    0.84, 0.95,
+    0.84,
+    0.95,
     panel_text,
     va="top",
     ha="left",
@@ -178,8 +154,13 @@ fig.text(
     bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
 )
 
-outpath = Path(__file__).parent / "fragility_vs_xbar_resistant_logistic_multiple_cycles.png"
+outpath = (
+    Path(__file__).parent
+    / f"Graphs/Resistance/Fragility_vs_mean_dose_logistic_{n_cycles}_cycles_Regime_C?.png"
+)
+outpath.parent.mkdir(parents=True, exist_ok=True)
+
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
 plt.show()
-
-print(f"Saved: {outpath}")
+# Close figure when running on command line
+# plt.close()

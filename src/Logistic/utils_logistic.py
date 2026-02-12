@@ -1,7 +1,7 @@
 import numpy as np
 from Logistic_Model import HillParams, TumourModel, ResourceParams
 
-# from Logistic_Drug_Resistance import TumourResistantModel
+from Logistic_Drug_Resistance import ResistantTumourModel
 from scipy.optimize import curve_fit
 from scipy.integrate import solve_ivp
 
@@ -132,12 +132,127 @@ def run_abm_logistic(config, scenarios, seed=None, compute_fragility=False):
     }
 
     if compute_fragility and len(final_volumes) >= 2:
-        # same normalisation style as your exponential version
         frag_per_run = (final_volumes[1] - final_volumes[0]) / initial_cells
         results["fragility"] = {
             "per_run": frag_per_run,
             "mean": float(frag_per_run.mean()),
             "std": float(frag_per_run.std()),
+        }
+
+    return results
+
+
+def run_abm_resistant_logistic(config, scenarios, seed=None, compute_fragility=False):
+
+    (
+        initial_cells,
+        birth_rate,
+        death_rate,
+        dt,
+        steps,
+        n_runs,
+        hill_params,
+        res_params,
+        initial_resources,
+        initial_cell_energy,
+        p_mutation,
+        initial_resistant_fraction,
+    ) = process_config(config)
+
+    time = np.arange(steps + 1) * dt
+
+    mean_total, std_total = [], []
+    mean_sens, std_sens = [], []
+    mean_res, std_res = [], []
+    final_totals = []
+
+    all_total_list = []
+    all_sens_list = []
+    all_res_list = []
+
+    # reproducibility
+    base_seed = seed if seed is not None else 0
+    run_seeds = [base_seed + r for r in range(n_runs)]
+
+    for sc in scenarios:
+        all_total = np.zeros((n_runs, steps + 1), dtype=float)
+        all_sens = np.zeros((n_runs, steps + 1), dtype=float)
+        all_res = np.zeros((n_runs, steps + 1), dtype=float)
+
+        for r in range(n_runs):
+            print(f"Running scenario '{sc['name']}', run {r+1}/{n_runs}")
+
+            m = ResistantTumourModel(
+                initial_cells=initial_cells,
+                birth_rate=birth_rate,
+                death_rate=death_rate,
+                dt=dt,
+                initial_resources=initial_resources,
+                initial_cell_energy=initial_cell_energy,
+                p_mutation=p_mutation,
+                initial_resistant_fraction=initial_resistant_fraction,
+                res_params=res_params,
+                alpha=sc["alpha"],
+                hill_params=hill_params,
+                drug_schedule=list(sc["schedule"]),
+                seed=run_seeds[r],
+            )
+
+            for _ in range(steps):
+                m.step()
+
+            df = m.datacollector.get_model_vars_dataframe()
+
+            tcol = df["t"].to_numpy(dtype=float)
+            if len(tcol) != steps + 1:
+                raise ValueError(
+                    f"Expected {steps+1} rows, got {len(tcol)}. Check DataCollector timing."
+                )
+            if not np.allclose(tcol, time):
+                raise ValueError(
+                    "Time grid mismatch.\n"
+                    f"df['t'] head={tcol[:5]}, tail={tcol[-5:]}\n"
+                    f"expected head={time[:5]}, tail={time[-5:]}"
+                )
+
+            all_total[r, :] = df["Total"].to_numpy(dtype=float)
+            all_sens[r, :] = df["Sensitive"].to_numpy(dtype=float)
+            all_res[r, :] = df["Resistant"].to_numpy(dtype=float)
+
+        # summary stats
+        mean_total.append(all_total.mean(axis=0))
+        std_total.append(all_total.std(axis=0))
+        mean_sens.append(all_sens.mean(axis=0))
+        std_sens.append(all_sens.std(axis=0))
+        mean_res.append(all_res.mean(axis=0))
+        std_res.append(all_res.std(axis=0))
+
+        final_totals.append(all_total[:, -1])
+
+        all_total_list.append(all_total)
+        all_sens_list.append(all_sens)
+        all_res_list.append(all_res)
+
+    results = {
+        "scenarios": scenarios,
+        "time": time,
+        "mean_total": mean_total,
+        "std_total": std_total,
+        "mean_sensitive": mean_sens,
+        "std_sensitive": std_sens,
+        "mean_resistant": mean_res,
+        "std_resistant": std_res,
+        "all_total": all_total_list,
+        "all_sensitive": all_sens_list,
+        "all_resistant": all_res_list,
+    }
+
+    if compute_fragility and len(final_totals) >= 2:
+        frag_per_run = (final_totals[1] - final_totals[0]) / float(initial_cells)
+        results["fragility"] = {
+            "per_run": frag_per_run,
+            "mean": float(frag_per_run.mean()),
+            "std": float(frag_per_run.std(ddof=1)) if frag_per_run.size > 1 else 0.0,
         }
 
     return results
@@ -239,111 +354,6 @@ def deterministic_pk(time, schedule, alpha):
     return conc
 
 
-def hill_kill_rate_scalar(c, hill_params):
-    """Scalar Hill kill term k(c)."""
-    if hill_params is None or c <= 0.0:
-        return 0.0
-    K_kill = float(hill_params.K_kill)
-    C = float(hill_params.C)
-    n = float(hill_params.n)
-
-    x_n = c**n
-    denom = x_n + (C**n)
-    if denom <= 0.0:
-        return 0.0
-    return float(K_kill * (x_n / denom))
-
-
-# def continuum_logistic_with_pkpd(time, N0, K, r, schedule, alpha, hill_params,
-#                                      method="RK45", rtol=1e-7, atol=1e-9):
-#     """
-#     Continuum logistic + drug solved with solve_ivp:
-
-#         dN/dt = r N (1 - N/K) - k(c(t)) N
-
-#     PK: conc(t) precomputed on `time` grid, then linearly interpolated during integration.
-#     PD: k(c) from Hill equation.
-
-#     Returns: N_sol, conc_grid, conc_used_grid, k_grid
-#     """
-#     time = np.asarray(time, dtype=float)
-#     t0, t1 = float(time[0]), float(time[-1])
-
-#     # PK on the same grid you plot
-#     conc_grid = deterministic_pk(time, schedule, alpha)
-
-#     # Linear interpolation of conc(t) using numpy.interp (fast, no extra deps)
-#     def conc_of_t(t):
-#         # clamp to [t0, t1] to avoid extrapolation weirdness
-#         if t <= t0:
-#             return float(conc_grid[0])
-#         if t >= t1:
-#             return float(conc_grid[-1])
-#         return float(np.interp(t, time, conc_grid))
-
-#     # ODE RHS
-#     def rhs(t, y):
-#         N = float(y[0])
-#         # Optional: prevent negative N feeding back into dynamics
-#         if N <= 0.0:
-#             return [0.0]
-
-#         c = conc_of_t(t)
-#         k = hill_kill_rate_scalar(c, hill_params)
-#         dNdt = r * N * (1.0 - N / K) - k * N
-#         return [dNdt]
-
-#     sol = solve_ivp(
-#         rhs,
-#         t_span=(t0, t1),
-#         y0=[float(N0)],
-#         t_eval=time,
-#         method=method,
-#         rtol=rtol,
-#         atol=atol,
-#         vectorized=False,
-#     )
-
-#     if not sol.success:
-#         raise RuntimeError(f"solve_ivp failed: {sol.message}")
-
-#     N_sol = sol.y[0]
-#     # keep outputs nonnegative for plotting/comparison
-#     N_sol = np.maximum(N_sol, 0.0)
-
-#     # For plotting the same “used” profiles on the grid
-#     conc_used = conc_grid
-#     k_grid = hill_kill_rate(conc_used, hill_params)
-
-#     return N_sol, conc_grid, conc_used, k_grid
-
-# def continuum_logistic_with_pkpd(time, dt, N0, K, r, schedule, alpha, hill_params):
-#     """
-#     Continuum logistic + drug:
-#         dN/dt = r N (1 - N/K) - k(x(t)) N
-
-#     PK: conc(t) from deterministic_pk(time, schedule, alpha)
-#     PD: k(conc) from hill_kill_rate, matching the ABM Hill parameters.
-
-#     Uses conc(t) at the current time grid (no one-step lag), matching the edited ABM.
-#     """
-#     conc = deterministic_pk(time, schedule, alpha)
-#     conc_used = conc
-
-#     k = hill_kill_rate(conc_used, hill_params)
-
-#     N = np.zeros_like(time, dtype=float)
-#     N[0] = float(N0)
-
-#     for j in range(1, len(time)):
-#         Nj = N[j - 1]
-#         growth = r * Nj * (1.0 - Nj / K)
-#         kill = k[j - 1] * Nj
-#         N[j] = max(0.0, Nj + dt * (growth - kill))
-
-#     return N, conc, conc_used, k
-
-
 def hill_kill_rate(conc, hill_params):
     """
     Saturating Hill kill term:
@@ -359,7 +369,6 @@ def hill_kill_rate(conc, hill_params):
     return K_kill * (x_n / np.maximum(denom, 1e-12))
 
 
-# ---------------- Utility helpers (Option B) ---------------- #
 def estimate_K_tail(N, frac_tail=0.2):
     N = np.asarray(N, float)
     tail = N[int((1 - frac_tail) * len(N)) :]
@@ -389,10 +398,6 @@ def fit_r_logit(time, N, K, low_frac=0.2, high_frac=0.8, eps=1e-6):
     return float(r), float(c)
 
 
-import numpy as np
-from scipy.integrate import solve_ivp
-
-
 def pk_conc_analytic(t, schedule, alpha):
     """
     Exact PK concentration at time t from bolus doses with exponential decay.
@@ -410,21 +415,6 @@ def pk_conc_analytic(t, schedule, alpha):
         if t >= t_dose:
             total += amount * np.exp(-alpha * (t - t_dose))
     return float(total)
-
-
-def hill_kill_rate_scalar(c, hill_params):
-    """Scalar Hill kill term k(c)."""
-    if hill_params is None or c <= 0.0:
-        return 0.0
-    K_kill = float(hill_params.K_kill)
-    C = float(hill_params.C)
-    n = float(hill_params.n)
-
-    x_n = c**n
-    denom = x_n + (C**n)
-    if denom <= 0.0:
-        return 0.0
-    return float(K_kill * (x_n / denom))
 
 
 def continuum_logistic_with_pkpd(
@@ -460,7 +450,7 @@ def continuum_logistic_with_pkpd(
             return [0.0]  # keep it at 0 once extinct
 
         c = pk_conc_analytic(t, schedule, alpha)
-        k = hill_kill_rate_scalar(c, hill_params)
+        k = hill_kill_rate(c, hill_params)
 
         dNdt = r * N * (1.0 - N / K) - k * N
         return [dNdt]
@@ -484,8 +474,6 @@ def continuum_logistic_with_pkpd(
     conc_grid = np.array(
         [pk_conc_analytic(t, schedule, alpha) for t in time], dtype=float
     )
-    k_grid = np.array(
-        [hill_kill_rate_scalar(c, hill_params) for c in conc_grid], dtype=float
-    )
+    k_grid = np.array([hill_kill_rate(c, hill_params) for c in conc_grid], dtype=float)
 
     return N_sol, conc_grid, conc_grid, k_grid

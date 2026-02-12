@@ -1,235 +1,307 @@
-import matplotlib.pyplot as plt
-from matplotlib import gridspec
-import numpy as np
 import json
+import copy
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
 from utils_logistic import (
     make_fragility_test_scenarios,
-    process_scenarios_config,
     process_config,
-    deterministic_pk,
-    run_abm_logistic_resistant,
+    run_abm_resistant_logistic,
+    continuum_logistic_with_pkpd,
+    estimate_K_tail,
+    fit_r_logit,
 )
-
 
 # ---------------- Load Config ---------------- #
 CONFIG_PATH = Path(__file__).parent / "config_logistic.json"
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
-do_fragility_test = True
-
-
 # ---------------- Build scenarios ---------------- #
-if do_fragility_test:
-    print("Running fragility test for logistic ABM...")
+x_bar = 20
+n_doses_per_cycle = 2
+total_dose_per_cycle = x_bar * n_doses_per_cycle
+sigma = x_bar / 2
+n_cycles = 4
+cycle_length = 12
+alpha_val = 1
 
-    x_bar = 40
-    n_doses_per_cycle = 2
-    total_dose_per_cycle = x_bar * n_doses_per_cycle
-    sigma = total_dose_per_cycle / 2
-    n_cycles = 4
-    cycle_length = 12
-    alpha_val = 1
-
-    scenarios = make_fragility_test_scenarios(
-        total_dose_per_cycle,
-        n_doses_per_cycle,
-        n_cycles,
-        sigma,
-        cycle_length,
-        alpha_val,
-    )
-    is_fragility = True
-
-else:
-    scenarios = process_scenarios_config(config)
-    is_fragility = False
-
-
-# Extract config parameters for baseline computation
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(
-    config
-)
-time = np.arange(steps + 1) * dt
-
-
-# ---------------- Compute NO-DRUG baseline ---------------- #
-print("\nComputing NO-DRUG baseline...")
-
-baseline_scenario = [
-    {
-        "name": "No Drug",
-        "schedule": [],
-        "alpha": 0.0,
-    }
-]
-
-baseline_results = run_abm_logistic_resistant(config, baseline_scenario, seed=42)
-
-mean_no_drug = baseline_results["mean_trajectories"][0]
-std_no_drug = baseline_results["std_trajectories"][0]
-
-
-# ---------------- Run ABM ---------------- #
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(
-    config
-)
-time = np.arange(steps + 1) * dt
-
-
-abm_results = run_abm_logistic_resistant(
-    config, scenarios, seed=42, compute_fragility=True
+scenarios = make_fragility_test_scenarios(
+    total_dose_per_cycle,
+    n_doses_per_cycle,
+    n_cycles,
+    sigma,
+    cycle_length,
+    alpha_val,
 )
 
-# ---------------- Collect results ---------------- #
+# ---------------------- Run ABM ---------------------- #
+(
+    initial_cells,
+    birth_rate,
+    death_rate,
+    dt,
+    steps,
+    n_runs,
+    hill_params,
+    res_params,
+    initial_resources,
+    initial_cell_energy,
+    p_mutation,
+    initial_resistant_fraction,
+) = process_config(config)
+
+abm_results = run_abm_resistant_logistic(config, scenarios, seed=42)
+time = abm_results["time"]
+
+# ---------------------- Run ABM (no-drug baseline for r,K) ---------------------- #
+print("\nComputing NO-DRUG baseline (for K)...")
+
+baseline_scenario = [{"name": "No Drug", "schedule": [], "alpha": 0.0}]
+cfg = copy.deepcopy(config)
+cfg["simulation"]["n_runs"] = 10
+
+# ---- 1) Estimate K from saturated no-drug run ----
+K_fit_results = run_abm_resistant_logistic(cfg, baseline_scenario, seed=42)
+mean_no_drug = K_fit_results["mean_total"][0]
+
+K0 = estimate_K_tail(mean_no_drug, frac_tail=0.2)
+
+baseline = {
+    "mean_total": K_fit_results["mean_total"][0],
+    "std_total": K_fit_results["std_total"][0],
+}
+
+# ---- 2) Estimate r from low-N no-drug run ----
+cfg["simulation"]["initial_cells"] = 30
+
+r_fit_results = run_abm_resistant_logistic(cfg, baseline_scenario, seed=42)
+
+mean_lowN = r_fit_results["mean_total"][0]
+time_lowN = r_fit_results["time"]
+
+r, _ = fit_r_logit(time_lowN, mean_lowN, K0, low_frac=0.2, high_frac=0.8)
+print("K0 (saturated run):", K0)
+print("r0 (low-N run):", r)
+
+# ---------------------- Build deterministic + collect results ---------------------- #
 results = []
-
 for i, sc in enumerate(scenarios):
+    mean_abm = abm_results["mean_total"][i]
+    std_abm = abm_results["std_total"][i]
 
-    mean_abm = abm_results["mean_trajectories"][i]
-    std_abm = abm_results["std_trajectories"][i]
-
-    # deterministic PK curve
-    conc_det = deterministic_pk(time, sc["schedule"], sc["alpha"])
+    N_det, conc_det, _, _ = continuum_logistic_with_pkpd(
+        time=time,
+        N0=mean_abm[0],
+        K=K0,
+        r=r,
+        schedule=sc["schedule"],
+        alpha=sc["alpha"],
+        hill_params=hill_params,
+    )
 
     results.append(
         {
             "name": sc["name"],
             "schedule": sc["schedule"],
-            "alpha": sc["alpha"],
-            "mean": mean_abm,
-            "std": std_abm,
+            "mean_total": abm_results["mean_total"][i],
+            "std_total": abm_results["std_total"][i],
+            "mean_sensitive": abm_results["mean_sensitive"][i],
+            "std_sensitive": abm_results["std_sensitive"][i],
+            "mean_resistant": abm_results["mean_resistant"][i],
+            "std_resistant": abm_results["std_resistant"][i],
+            "N_det": N_det,
             "conc_det": conc_det,
         }
     )
 
 
-# ------------------- Plotting ------------------- #
-scenario_palette = [
-    "tab:orange",
-    "tab:green",
-    "tab:red",
-    "tab:purple",
-    "tab:brown",
-    "tab:pink",
-    "tab:gray",
-    "tab:olive",
-    "tab:cyan",
-]
-
+# ------------------- Layout ------------------- #
 fig = plt.figure(figsize=(14, 12))
 gs = gridspec.GridSpec(3, 2, height_ratios=[2.2, 1.6, 1.2])
 
 ax_top = fig.add_subplot(gs[0, :])
 ax_even = fig.add_subplot(gs[1, 0])
-ax_odd  = fig.add_subplot(gs[1, 1])
-ax_pk   = fig.add_subplot(gs[2, :])
+ax_odd = fig.add_subplot(gs[1, 1])
+ax_pk = fig.add_subplot(gs[2, :])
 
-# ===================== TOP: Tumour Trajectories =====================
-mean_no_drug_total = mean_no_drug[:, 0] + mean_no_drug[:, 1]
+# ------------------- Colours ------------------- #
+col_even = "tab:orange"
+col_odd = "tab:green"
+col_base = "0.4"  # grey
 
+# ------------------- TOP: total tumour trajectories ------------------- #
+for res, col in zip(results, [col_even, col_odd]):
 
-for res, col in zip(results, ["tab:orange", "tab:green"]):
-    mean_total = res["mean"][:,0] + res["mean"][:,1]
-    std_total  = np.sqrt(res["std"][:,0]**2 + res["std"][:,1]**2)
+    mean_total = res["mean_total"]
+    std_total = res["std_total"]
 
     ax_top.plot(time, mean_total, color=col, lw=2, label=res["name"])
-    ax_top.fill_between(time,
-                        mean_total-std_total,
-                        mean_total+std_total,
-                        color=col, alpha=0.15)
+    ax_top.fill_between(
+        time,
+        mean_total - std_total,
+        mean_total + std_total,
+        color=col,
+        alpha=0.15,
+    )
 
-ax_top.plot(time, mean_no_drug[:,0] + mean_no_drug[:,1],
-            "--", color="grey", lw=2, label="No-drug baseline")
+    # deterministic overlay
+    ax_top.plot(time, res["N_det"], ls="--", lw=2, color=col, alpha=0.5)
+
+    # dose markers (optional but nice)
+    for _, t_dose in res["schedule"]:
+        ax_top.axvline(t_dose, color=col, ls=":", alpha=0.18)
+
+# ---- baseline ONCE ----
+if baseline is not None:
+    ax_top.plot(
+        time,
+        baseline["mean_total"],
+        "--",
+        color=col_base,
+        lw=2,
+        label="No-drug baseline",
+    )
+    ax_top.fill_between(
+        time,
+        baseline["mean_total"] - baseline["std_total"],
+        baseline["mean_total"] + baseline["std_total"],
+        color=col_base,
+        alpha=0.10,
+    )
 
 ax_top.set_ylabel("Cells")
-ax_top.set_title("Tumour population: ABM vs no-drug baseline")
+ax_top.set_title("Tumour population (total): ABM (±1 SD) and deterministic overlay")
 ax_top.legend()
 ax_top.grid(alpha=0.3)
 
 
+# ------------------- MIDDLE: composition stackplots ------------------- #
 def plot_composition(ax, res, title):
-    sensitive = res["mean"][:,0]
-    resistant = res["mean"][:,1]
+    sens = res["mean_sensitive"]
+    resi = res["mean_resistant"]
 
     ax.stackplot(
         time,
-        sensitive,
-        resistant,
+        sens,
+        resi,
         labels=["Sensitive", "Resistant"],
         colors=["tab:blue", "tab:red"],
-        alpha=0.8
+        alpha=0.85,
     )
     ax.set_title(title)
     ax.set_ylabel("Cells")
     ax.grid(alpha=0.3)
     ax.legend(loc="upper left", fontsize=9)
 
+
 plot_composition(ax_even, results[0], "Even schedule: Sensitive vs Resistant")
-plot_composition(ax_odd,  results[1], "Odd schedule: Sensitive vs Resistant")
+plot_composition(ax_odd, results[1], "Odd schedule: Sensitive vs Resistant")
 
+# ------------------- BOTTOM: PK profiles ------------------- #
+ax_pk.plot(time, results[0]["conc_det"], color=col_even, lw=2, label="Even schedule")
+ax_pk.plot(time, results[1]["conc_det"], color=col_odd, lw=2, label="Odd schedule")
 
-
-
-
-
-
-
-
-# ===================== BOTTOM: PK Profiles =====================
-ax_pk.plot(time, results[0]["conc_det"], color="tab:orange", lw=2,
-           label="Even schedule")
-ax_pk.plot(time, results[1]["conc_det"], color="tab:green", lw=2,
-           label="Odd schedule")
-
-ax_pk.set_xlabel("Time")
+ax_pk.set_xlabel("Time (days)")
 ax_pk.set_ylabel("Drug concentration")
 ax_pk.set_title("PK profiles")
 ax_pk.legend()
 ax_pk.grid(alpha=0.3)
+
 # ----------------- parameter info box ----------------- #
 param_lines = [
-    f"initial_cells: {initial_cells}",
-    f"birth_rate: {birth_rate}",
-    f"death_rate: {death_rate}",
-    f"dt: {dt}, steps: {steps}",
-    f"n_runs: {n_runs}",
-    "Hill parameters:",
-    f"  E0: {hill_params['E0']}",
-    f"  E1: {hill_params['E1']}",
-    f"  C:  {hill_params['C']}",
-    f"  n:  {hill_params['n']}",
+    "Simulation",
+    "----------",
+    f"initial_cells = {initial_cells}",
+    f"birth_rate    = {birth_rate}",
+    f"death_rate    = {death_rate}",
+    f"dt            = {dt}",
+    f"steps         = {steps}",
+    f"n_runs        = {n_runs}",
+    "",
+    "Resources",
+    "---------",
+    f"energy_capacity  = {res_params.energy_capacity}",
+    f"div_threshold    = {res_params.division_threshold}",
+    f"maintenance_cost = {res_params.maintenance_cost}",
+    f"resource_influx  = {res_params.resource_influx}",
+    "",
+    "Resistance",
+    "----------",
+    f"p_mutation              = {p_mutation}",
+    f"initial_resistant_frac  = {initial_resistant_fraction}",
+    "",
+    "Hill PD",
+    "-------",
+    f"K_kill = {hill_params.K_kill}",
+    f"C      = {hill_params.C}",
+    f"n      = {hill_params.n}",
 ]
+
 param_text = "\n".join(param_lines)
 
-# reserve a narrow area on the right for the slim info box and draw the text
-plt.tight_layout(
-    rect=(0, 0, 0.88, 1.0)
-)  # leave ~12% on the right for the info box (moved left)
+
+# ------------------- Panel Labels ------------------- #
+ax_top.text(
+    0.0,
+    1.02,
+    r"$\mathbf{(A)}$",
+    transform=ax_top.transAxes,
+    ha="left",
+    va="bottom",
+)
+
+ax_even.text(
+    0.0,
+    1.02,
+    r"$\mathbf{(B)}$",
+    transform=ax_even.transAxes,
+    ha="left",
+    va="bottom",
+)
+
+ax_odd.text(
+    0.0,
+    1.02,
+    r"$\mathbf{(C)}$",
+    transform=ax_odd.transAxes,
+    ha="left",
+    va="bottom",
+)
+
+ax_pk.text(
+    0.0,
+    1.02,
+    r"$\mathbf{(D)}$",
+    transform=ax_pk.transAxes,
+    ha="left",
+    va="bottom",
+)
+
+plt.tight_layout(rect=(0, 0, 0.88, 1.0))
 fig.text(
-    0.855,  # moved left so the box sits just next to the axes
-    0.98,  # start from top so lines flow downward
+    0.885,
+    0.98,
     param_text,
-    fontsize=7,  # smaller font to fit the slim box
+    fontsize=7,
     va="top",
     ha="left",
     family="monospace",
     bbox=dict(boxstyle="round", facecolor="white", alpha=0.9, edgecolor="0.8"),
 )
 
+out_path = (
+    Path(__file__).parent
+    / "Graphs"
+    / "Resistance"
+    / f"logistic_abm_trajectories_{initial_cells}_cells_{n_runs}_runs_{x_bar}.png"
+)
 
-plt.tight_layout()
+out_path.parent.mkdir(parents=True, exist_ok=True)
+
+plt.savefig(out_path, dpi=300)
 plt.show()
-
-
-# ------------------------------------------------------
-# FRAGILITY PRINT
-# ------------------------------------------------------
-if is_fragility:
-    frag = abm_results["fragility"]
-    print("\n===== FRAGILITY ANALYSIS (LOGISTIC ABM) =====")
-    print(f"Mean fragility = {frag['mean']:.4f}")
-    print(f"Per-run fragility = {frag['per_run']}")
+# Close figure when running on command line
+# plt.close()
