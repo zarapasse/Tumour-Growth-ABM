@@ -1,4 +1,4 @@
-from Logistic_Model import TumourModel
+from Logistic.Models.Logistic_Model import TumourModel
 import numpy as np
 import matplotlib.pyplot as plt
 

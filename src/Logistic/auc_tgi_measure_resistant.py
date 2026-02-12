@@ -154,10 +154,6 @@ panel_lines = [
     f"K_kill = {hill_params.K_kill}",
     f"C      = {hill_params.C}",
     f"n      = {hill_params.n}",
-    "",
-    "Baseline",
-    "--------",
-    f"AUC0_mean = {AUC0_mean:.3g}",
 ]
 panel_text = "\n".join(panel_lines)
 

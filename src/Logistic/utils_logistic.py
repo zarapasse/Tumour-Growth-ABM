@@ -1,7 +1,7 @@
 import numpy as np
-from Logistic_Model import HillParams, TumourModel, ResourceParams
+from Models.Logistic_Model import HillParams, TumourModel, ResourceParams
 
-from Logistic_Drug_Resistance import ResistantTumourModel
+from Models.Logistic_Drug_Resistance import ResistantTumourModel
 from scipy.optimize import curve_fit
 from scipy.integrate import solve_ivp
 
