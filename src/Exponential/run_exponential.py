@@ -33,7 +33,7 @@ scenarios = make_fragility_test_scenarios(
 )
 
 # ---------------------- Run ABM ---------------------- #
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _ = (
+initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _, _ = (
     process_config(config)
 )
 

@@ -65,7 +65,7 @@ class ResistantTumourCell(Agent):
         super().__init__(model)
         
     def step(self):
-        b=self.model.birth_rate
+        b=self.model.birth_rate * self.model.fitness_cost  # resistant cells have a fitness cost (e.g. 10% lower birth rate)
         d=self.model.death_rate  # resistant cells are unaffected by drug, so use base death rate
         r = b + d
         
@@ -92,6 +92,7 @@ class TumourModel(Model):
         death_rate,
         dt,
         alpha,
+        fitness_cost,
         drug_schedule=None,
         hill_params=None,
         seed=None,

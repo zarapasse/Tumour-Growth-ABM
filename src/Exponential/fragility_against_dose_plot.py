@@ -46,7 +46,7 @@ dt = float(config["simulation"]["dt"])
 steps = int(round(t_end / dt))  # ABM will return steps+1 time points (including t=0)
 config["simulation"]["steps"] = steps
 
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _ = process_config(
+initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _, _ = process_config(
     config
 )
 

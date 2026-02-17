@@ -16,6 +16,7 @@ def process_config(config):
     n_runs = sim["n_runs"]
     p_mutation = sim["p_mutation"] if not None else 0.0
     initial_resistant_fraction = sim["initial_resistant_fraction"] if not None else 0.0
+    fitness_cost = sim["fitness_cost"]
 
     hill_params = None
     if hill is not None:
@@ -35,6 +36,7 @@ def process_config(config):
         hill_params,
         p_mutation,
         initial_resistant_fraction,
+        fitness_cost,
     )
 
 
@@ -50,7 +52,7 @@ def make_fragility_test_scenarios(
     Returns:
         [
           {"name": "Even Schedule", "schedule": [...], "alpha": alpha},
-          {"name": "Odd Schedule",  "schedule": [...], "alpha": alpha},
+          {"name": "Uneven Schedule",  "schedule": [...], "alpha": alpha},
         ]
     """
 
@@ -79,14 +81,14 @@ def make_fragility_test_scenarios(
 
     return [
         {"name": "Even Schedule", "schedule": even_schedule, "alpha": alpha},
-        {"name": "Odd Schedule", "schedule": odd_schedule, "alpha": alpha},
+        {"name": "Uneven Schedule", "schedule": odd_schedule, "alpha": alpha},
     ]
 
 
 def run_abm(config, scenarios, seed=None, compute_fragility=False):
     """Run ABM for given scenarios. Returns mean/std trajectories and fragility if computed."""
 
-    initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _ = (
+    initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _, _ = (
         process_config(config)
     )
 
@@ -161,6 +163,7 @@ def run_abm_resistance(
         hill_params,
         p_mutation,
         initial_resistant_fraction,
+        fitness_cost,
     ) = process_config(config)
 
     time = np.arange(steps + 1) * dt

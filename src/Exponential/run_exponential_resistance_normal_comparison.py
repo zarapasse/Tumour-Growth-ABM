@@ -66,6 +66,7 @@ scenarios = make_fragility_test_scenarios(
     hill_params,
     p_mutation,
     initial_resistant_fraction,
+    fitness_cost,
 ) = process_config(config)
 
 time = np.arange(steps + 1) * dt

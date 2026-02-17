@@ -29,7 +29,7 @@ with open(CONFIG_PATH, "r") as f:
 
 # ----------------- Sweep settings ----------------- #
 n_doses_per_cycle = 2
-n_cycles = 1
+n_cycles = 4
 cycle_length = 12
 alpha_val = 1.0
 
@@ -49,6 +49,7 @@ config["simulation"]["steps"] = steps
     hill_params,
     p_mutation,
     initial_resistant_fraction,
+    fitness_cost,
 ) = process_config(config)
 
 time = np.arange(steps + 1) * dt
@@ -65,7 +66,7 @@ for x_bar in x_bar_values:
     total_dose_per_cycle = x_bar * n_doses_per_cycle
 
     sigma = (
-        total_dose_per_cycle / 2.0
+        x_bar / 2.0
     )  #! Change to control variability of dose distribution across cycles
 
     scenarios = make_fragility_test_scenarios(
@@ -137,7 +138,7 @@ ax.fill_between(
 ax.axhline(0.0, lw=1, ls="--")
 ax.set_xlabel(r"Mean dose $\bar{x}$")
 ax.set_ylabel("Fragility")
-ax.set_title(f"Fragility vs mean dose (resistance ON, {n_cycles} cycle)")
+ax.set_title(f"Fragility vs mean dose (resistance ON, {n_cycles} cycles)")
 ax.grid(True, alpha=0.3)
 ax.legend(fontsize=9, ncol=2)
 
@@ -160,6 +161,7 @@ param_lines = [
     f"n_runs        = {n_runs}",
     f"p_mutation    = {p_mutation}",
     f"init_res_frac = {initial_resistant_fraction}",
+    f"fitness_cost  = {fitness_cost}",
     "",
     "Hill parameters",
     "----------",
@@ -183,7 +185,7 @@ fig.text(
 
 outpath = (
     Path(__file__).parent
-    / "Graphs/Resistance/Fragility_vs_mean_dose_single_cycle_with_resistance.png"
+    / f"Graphs/Resistance/Fragility_vs_mean_dose_{n_cycles}_cycles_with_resistance.png"
 )
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
 #plt.show()

@@ -17,7 +17,7 @@ CONFIG_PATH = Path(__file__).parent / "config.json"
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _ = (
+initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _, _ = (
     process_config(config)
 )
 time = np.arange(steps + 1) * dt

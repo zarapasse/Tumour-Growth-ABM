@@ -18,7 +18,7 @@ with open(CONFIG_PATH, "r") as f:
 print("Running fragility test scenarios...")
 
 # ---- scenario params ----
-x_bar = 30
+x_bar = 20
 n_doses_per_cycle = 2
 total_dose_per_cycle = x_bar * n_doses_per_cycle
 sigma = total_dose_per_cycle / 2
@@ -41,6 +41,7 @@ scenarios = make_fragility_test_scenarios(
     hill_params,
     p_mutation,
     initial_resistant_fraction,
+    fitness_cost,
 ) = process_config(config)
 
 # ---- ABM (resistant) ----
@@ -219,8 +220,9 @@ axP.text(
 
 fig.tight_layout()
 
-outpath = Path(__file__).parent / "Graphs/Resistance/exponential_resistance_seeded.png"
+outpath = Path(__file__).parent / "Graphs/Resistance/exponential_resistance_trajectory.png"
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-plt.show()
+#plt.show()
+plt.close()
 
 print(f"Saved plot: {outpath}")
