@@ -190,6 +190,7 @@ param_lines = [
     f"n_runs        = {n_runs}",
     f"p_mutation    = {p_mutation}",
     f"init_res_frac = {initial_resistant_fraction}",
+    f"fitness_cost   = {fitness_cost}",
     "",
     "Hill parameters",
     "--------------",
