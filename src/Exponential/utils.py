@@ -190,6 +190,7 @@ def run_abm_resistance(
                 death_rate=death_rate,
                 dt=dt,
                 alpha=float(sc["alpha"]),
+                fitness_cost=fitness_cost,
                 drug_schedule=list(sc["schedule"]),
                 hill_params=hill_params,
                 seed=run_seeds[r],
