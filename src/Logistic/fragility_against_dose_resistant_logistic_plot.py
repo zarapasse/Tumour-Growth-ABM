@@ -51,6 +51,7 @@ config["simulation"]["steps"] = steps
     initial_cell_energy,
     p_mutation,
     initial_resistant_fraction,
+    fitness_cost,
 ) = process_config(config)
 
 x_bar_values = np.arange(10, 100, 2.5)
@@ -128,6 +129,7 @@ panel_lines = [
     "----------",
     f"p_mutation              = {p_mutation}",
     f"initial_resistant_frac  = {initial_resistant_fraction}",
+    f"fitness_cost            = {fitness_cost}",
     "",
     "Resource parameters",
     "----------",

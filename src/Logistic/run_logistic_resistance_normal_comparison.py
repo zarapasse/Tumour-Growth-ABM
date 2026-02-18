@@ -1,16 +1,4 @@
-"""
-LOGISTIC (resource-limited) ABM:
-Compare normal logistic ABM vs resistant logistic ABM under identical schedules.
-
-Top:
-- Normal ABM total (dashed) vs Resistant ABM total (solid), mean ± std
-
-Bottom:
-- Resistant ABM composition (Sensitive vs Resistant) for each schedule
-
-Side panel:
-- key parameters + resistance metrics including t50 (first time R>S)
-"""
+# TODO: fix this for the new code!!
 
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
@@ -20,10 +8,10 @@ from pathlib import Path
 
 from utils_logistic import (
     make_fragility_test_scenarios,
-    process_scenarios_config,
     process_config,
     run_abm_logistic,
-    run_abm_logistic_resistant,
+    run_abm_resistant_logistic,
+    pk_conc,
 )
 
 # ---------------- Load Config ---------------- #
@@ -31,223 +19,223 @@ CONFIG_PATH = Path(__file__).parent / "config_logistic.json"
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
-do_fragility_test = True
-seed = 42
+print("Running fragility test scenarios...")
 
-# ---------------- Build scenarios ---------------- #
-if do_fragility_test:
-    print("Running fragility test scenarios for logistic ABM...")
+# ---------------------- Scenario parameters ---------------------- #
+x_bar = 20
+n_doses_per_cycle = 2
+total_dose_per_cycle = x_bar * n_doses_per_cycle
+sigma = x_bar / 2
+n_cycles = 4
+cycle_length = 12
+alpha_val = 1.0
 
-    x_bar = 40
-    n_doses_per_cycle = 2
-    total_dose_per_cycle = x_bar * n_doses_per_cycle
-    sigma = total_dose_per_cycle / 2
-    n_cycles = 4
-    cycle_length = 12
-    alpha_val = 1
+scenarios = make_fragility_test_scenarios(
+    total_dose_per_cycle,
+    n_doses_per_cycle,
+    n_cycles,
+    sigma,
+    cycle_length,
+    alpha_val,
+)
 
-    scenarios = make_fragility_test_scenarios(
-        total_dose_per_cycle,
-        n_doses_per_cycle,
-        n_cycles,
-        sigma,
-        cycle_length,
-        alpha_val,
-    )
-else:
-    print("Processing scenarios from config file...")
-    scenarios = process_scenarios_config(config)
+(
+    initial_cells,
+    birth_rate,
+    death_rate,
+    dt,
+    steps,
+    n_runs,
+    hill_params,
+    res_params,
+    initial_resources,
+    initial_cell_energy,
+    p_mutation,
+    initial_resistant_fraction,
+    fitness_cost,
+) = process_config(config)
 
-    # avoid NameError in side panel
-    x_bar = None
-    n_doses_per_cycle = None
-    sigma = None
-    n_cycles = None
-    cycle_length = None
-    alpha_val = None
+# ---------------------- Run ABMs ---------------------- #
+print("\nRunning normal ABM...")
+abm_normal = run_abm_logistic(config, scenarios, seed=42)
+time = abm_normal["time"]
 
-# ---------------- Helper: t50 ---------------- #
-def time_to_resistance_dominance(time, mean_SR):
-    """
-    t50 = first time where R(t) > S(t) using MEAN trajectory.
-    Returns None if dominance never occurs.
-    """
-    if mean_SR.ndim != 2 or mean_SR.shape[1] != 2:
-        return None
-    S = mean_SR[:, 0]
-    R = mean_SR[:, 1]
-    idx = np.where(R > S)[0]
-    if len(idx) == 0:
-        return None
-    return float(time[idx[0]])
+print("Running resistant ABM...")
+abm_resist = run_abm_resistant_logistic(config, scenarios, seed=42)
 
-# ---------------- Shared params (for panel) ---------------- #
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params = process_config(config)
-
-# ---------------- Run normal + resistant ABMs ---------------- #
-print("\nRunning NORMAL logistic ABM...")
-abm_normal = run_abm_logistic(config, scenarios, seed=seed, compute_fragility=False)
-
-print("Running RESISTANT logistic ABM...")
-abm_resist = run_abm_logistic_resistant(config, scenarios, seed=seed, compute_fragility=False)
-
-# ---------------- Pack results (robust time axis) ---------------- #
+# ---------------------- Results ---------------------- #
 results = []
 for i, sc in enumerate(scenarios):
-    normal_mean = abm_normal["mean_trajectories"][i]  # (T,)
-    normal_std  = abm_normal["std_trajectories"][i]   # (T,)
+    normal_mean = abm_normal["mean_trajectories"][i]
+    normal_std = abm_normal["std_trajectories"][i]
 
-    resist_mean = abm_resist["mean_trajectories"][i]  # (T,2) -> (S,R)
-    resist_std  = abm_resist["std_trajectories"][i]   # (T,2)
-
-    if resist_mean.ndim != 2 or resist_mean.shape[1] != 2:
-        raise ValueError(f"Expected resistant mean shape (T,2), got {resist_mean.shape}")
-
-    # enforce same T (in case your normal/resistant use steps vs steps+1)
-    T = min(len(normal_mean), len(resist_mean))
-    normal_mean = normal_mean[:T]
-    normal_std  = normal_std[:T]
-    resist_mean = resist_mean[:T, :]
-    resist_std  = resist_std[:T, :]
-
-    time = np.arange(T) * dt
-
-    resist_total_mean = resist_mean.sum(axis=1)
-    # conservative envelope for total std (ok for plots)
-    resist_total_std = resist_std.sum(axis=1) if resist_std.ndim == 2 else np.zeros_like(resist_total_mean)
+    resist_total_mean = abm_resist["mean_total"][i]
+    resist_total_std = abm_resist["std_total"][i]
 
     results.append(
         {
             "name": sc["name"],
             "schedule": sc["schedule"],
             "alpha": sc.get("alpha", None),
-            "time": time,
             "normal_mean": normal_mean,
             "normal_std": normal_std,
-            "resist_mean": resist_mean,              # (S,R)
-            "resist_std": resist_std,
             "resist_total_mean": resist_total_mean,
             "resist_total_std": resist_total_std,
+            "mean_sensitive": abm_resist["mean_sensitive"][i],
+            "std_sensitive": abm_resist["std_sensitive"][i],
+            "mean_resistant": abm_resist["mean_resistant"][i],
+            "std_resistant": abm_resist["std_resistant"][i],
         }
     )
 
-# ---------------- Plotting ---------------- #
+
+# ---------------------- Helpers ---------------------- #
+def time_to_resistance_dominance(time, sens, res):
+    """First time t such that R(t) > S(t) in the mean trajectories."""
+    idx = np.where(res > sens)[0]
+    return float(time[idx[0]]) if len(idx) else None
+
+
+# ---------------------- Plotting ---------------------- #
 scenario_palette = ["tab:orange", "tab:green", "tab:red", "tab:purple"]
 
-n_sc = len(results)
-fig = plt.figure(figsize=(14, 10))
-gs = gridspec.GridSpec(2, n_sc, figure=fig, height_ratios=[1.05, 1.0])
+# Layout: A, (B,C), D + right panel column
+fig = plt.figure(figsize=(15, 10))
+gs = gridspec.GridSpec(
+    3,
+    3,
+    width_ratios=[1.0, 1.0, 0.55],  # right column = panel
+    height_ratios=[1.15, 1.0, 0.85],  # A, B/C, D
+    hspace=0.40,
+    wspace=0.30,
+)
 
-ax_top = fig.add_subplot(gs[0, :])
-ax_bottom = [fig.add_subplot(gs[1, i]) for i in range(n_sc)]
+axA = fig.add_subplot(gs[0, 0:2])
+axB = fig.add_subplot(gs[1, 0])
+axC = fig.add_subplot(gs[1, 1])
+axD = fig.add_subplot(gs[2, 0:2])
 
-# ---- Top: Normal vs Resistant totals ----
+axP = fig.add_subplot(gs[:, 2])
+axP.axis("off")
+
+# (A) totals: resistant vs normal
 for i, res in enumerate(results):
     col = scenario_palette[i % len(scenario_palette)]
-    t = res["time"]
-    
-    # Resistant total (solid)
-    ax_top.plot(t, res["resist_total_mean"], color=col, lw=2,
-                label=f'{res["name"]} — Resistant ABM')
-    ax_top.fill_between(t,
-                        res["resist_total_mean"] - res["resist_total_std"],
-                        res["resist_total_mean"] + res["resist_total_std"],
-                        color=col, alpha=0.06)
 
-    # Normal (dashed)
-    ax_top.plot(t, res["normal_mean"], color=col, lw=2, ls="--", alpha=0.80,
-                label=f'{res["name"]} — Normal ABM')
-    ax_top.fill_between(t,
-                        res["normal_mean"] - res["normal_std"],
-                        res["normal_mean"] + res["normal_std"],
-                        color=col, alpha=0.10)
+    axA.plot(
+        time,
+        res["resist_total_mean"],
+        color=col,
+        lw=2,
+        label=f'{res["name"]} — Resistant ABM',
+    )
+    axA.fill_between(
+        time,
+        res["resist_total_mean"] - res["resist_total_std"],
+        res["resist_total_mean"] + res["resist_total_std"],
+        color=col,
+        alpha=0.08,
+    )
 
-    # Dose times
-    for amt, dose_t in res["schedule"]:
-        ax_top.axvline(dose_t, color=col, ls=":", alpha=0.25)
+    axA.plot(
+        time,
+        res["normal_mean"],
+        color=col,
+        lw=2,
+        ls="--",
+        alpha=0.85,
+        label=f'{res["name"]} — Normal ABM',
+    )
+    axA.fill_between(
+        time,
+        res["normal_mean"] - res["normal_std"],
+        res["normal_mean"] + res["normal_std"],
+        color=col,
+        alpha=0.12,
+    )
 
-ax_top.set_ylabel("Cells")
-ax_top.set_title("Tumour population: Normal ABM vs Resistant ABM")
-ax_top.grid(alpha=0.3)
-ax_top.legend(ncol=2, fontsize=9)
+    for _, dose_t in res["schedule"]:
+        axA.axvline(dose_t, color=col, ls=":", alpha=0.25)
 
-# ---- Bottom: Resistant composition ----
-for i, res in enumerate(results):
-    t = res["time"]
-    S = res["resist_mean"][:, 0]
-    R = res["resist_mean"][:, 1]
+axA.set_title(r"$\mathbf{(A)}$  Total tumour population", loc="left", fontsize=12)
+axA.set_ylabel("Cells")
+axA.grid(True, alpha=0.3)
+axA.legend(ncol=2, fontsize=9)
 
-    ax_bottom[i].stackplot(
-        t,
-        S,
-        R,
+
+# ------------------- MIDDLE: composition stackplots ------------------- #
+def plot_composition(ax, res, title):
+    sens = res["mean_sensitive"]
+    resi = res["mean_resistant"]
+
+    ax.stackplot(
+        time,
+        sens,
+        resi,
         labels=["Sensitive", "Resistant"],
         colors=["tab:blue", "tab:red"],
-        alpha=0.80,
+        alpha=0.85,
     )
-    ax_bottom[i].set_title(f'{res["name"]}: Cell composition')
-    ax_bottom[i].grid(alpha=0.3)
-    ax_bottom[i].legend(loc="upper right", fontsize=9)
-    ax_bottom[i].set_xlabel("Time")
-    if i == 0:
-        ax_bottom[i].set_ylabel("Cells")
+    ax.set_title(title)
+    ax.set_ylabel("Cells")
+    ax.grid(alpha=0.3)
+    ax.legend(loc="upper left", fontsize=9)
 
-# ---------------- Side panel: parameters + resistance summary + t50 ---------------- #
-panel_lines = [
-    "Simulation parameters",
-    "----------------------",
+
+plot_composition(axB, results[0], "Even schedule: Sensitive vs Resistant")
+plot_composition(axC, results[1], "Odd schedule: Sensitive vs Resistant")
+
+# (D) PK profiles
+
+# ------------------- BOTTOM: PK profiles ------------------- #
+for i, sc in enumerate(scenarios):
+    col = scenario_palette[i % len(scenario_palette)]
+    conc = pk_conc(time, sc["schedule"], float(sc["alpha"]))
+    axD.plot(time, conc, color=col, lw=2, label=sc["name"])
+
+axD.set_title(r"$\mathbf{(D)}$  PK profiles", loc="left", fontsize=12)
+axD.set_xlabel("Time (days)")
+axD.set_ylabel("Drug concentration")
+axD.grid(True, alpha=0.3)
+axD.legend(fontsize=9, ncol=2)
+
+# ---------------------- Right panel ---------------------- #
+param_lines = [
+    "Simulation",
+    "----------",
     f"initial_cells = {initial_cells}",
     f"birth_rate    = {birth_rate}",
     f"death_rate    = {death_rate}",
     f"dt            = {dt}",
     f"steps         = {steps}",
     f"n_runs        = {n_runs}",
-    f"p_mutation    = {config['simulation'].get('p_mutation', 'N/A')}",
-    f"initial_resistant_fraction = {config['simulation'].get('initial_resistant_fraction', 'N/A')}",
     "",
-    "Hill parameters",
-    "--------------",
-    f"E0 = {hill_params['E0']}",
-    f"E1 = {hill_params['E1']}",
-    f"C  = {hill_params['C']}",
-    f"n  = {hill_params['n']}",
+    "Resources",
+    "---------",
+    f"energy_capacity  = {res_params.energy_capacity}",
+    f"div_threshold    = {res_params.division_threshold}",
+    f"maintenance_cost = {res_params.maintenance_cost}",
+    f"resource_influx  = {res_params.resource_influx}",
+    "",
+    "Resistance",
+    "----------",
+    f"p_mutation              = {p_mutation}",
+    f"initial_resistant_frac  = {initial_resistant_fraction}",
+    f"fitness_cost            = {fitness_cost}",
+    "",
+    "Hill Parameters",
+    "-------",
+    f"K_kill = {hill_params.K_kill}",
+    f"C      = {hill_params.C}",
+    f"n      = {hill_params.n}",
 ]
 
-if do_fragility_test:
-    panel_lines += [
-        "",
-        "Dosing parameters",
-        "-----------------",
-        f"x_bar            = {x_bar}",
-        f"doses per cycle  = {n_doses_per_cycle}",
-        f"sigma            = {sigma}",
-        f"n_cycles         = {n_cycles}",
-        f"cycle_length     = {cycle_length}",
-        f"alpha            = {alpha_val}",
-    ]
+param_text = "\n".join(param_lines)
 
-panel_lines += ["", "Resistance summary", "-----------------"]
-for res in results:
-    S_end = float(res["resist_mean"][-1, 0])
-    R_end = float(res["resist_mean"][-1, 1])
-    frac_end = R_end / (S_end + R_end) if (S_end + R_end) > 0 else 0.0
-    t50 = time_to_resistance_dominance(res["time"], res["resist_mean"])
-
-    panel_lines += [
-        f"{res['name']}:",
-        f"  final resistant fraction = {frac_end:.3f}",
-        f"  final resistant cells    = {R_end:.0f}",
-        f"  final sensitive cells    = {S_end:.0f}",
-        f"  t50 (R>S)                = {t50:.2f}" if t50 is not None else "  t50 (R>S)                = n/a",
-    ]
-
-panel_text = "\n".join(panel_lines)
-
-plt.tight_layout(rect=(0, 0, 0.82, 1.0))
-fig.text(
-    0.84,
-    0.98,
-    panel_text,
+axP.text(
+    0.0,
+    1.0,
+    "\n".join(param_lines),
     va="top",
     ha="left",
     fontsize=8,
@@ -255,16 +243,11 @@ fig.text(
     bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
 )
 
-outpath = Path(__file__).parent / "logistic_normal_vs_resistant.png"
-plt.savefig(outpath, dpi=300)
-plt.show()
+fig.tight_layout()
 
-print(f"\nSaved: {outpath}")
+outpath = Path(__file__).parent / "Graphs/Resistance/logistic_normal_vs_resistant.png"
+plt.savefig(outpath, dpi=300, bbox_inches="tight")
+# plt.show()
+plt.close(fig)
 
-print("\nSchedules compared:")
-for res in results:
-    t50 = time_to_resistance_dominance(res["time"], res["resist_mean"])
-    print(f"- {res['name']}: alpha={res['alpha']}, doses={len(res['schedule'])}")
-    print(f"  Final normal ABM:    {res['normal_mean'][-1]:.0f}")
-    print(f"  Final resistant ABM: {res['resist_total_mean'][-1]:.0f}")
-    print(f"  t50 (R>S):           {t50:.2f}" if t50 is not None else "  t50 (R>S):           not reached")
+print(f"Saved plot: {outpath}")

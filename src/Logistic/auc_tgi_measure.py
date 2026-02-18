@@ -32,7 +32,7 @@ with open(CONFIG_PATH, "r") as f:
 
 # ----------------- Sweep settings ----------------- #
 n_doses_per_cycle = 2
-n_cycles = 4
+n_cycles = 1
 cycle_length = 12
 alpha_val = 1.0
 
@@ -53,6 +53,7 @@ config["simulation"]["steps"] = steps
     res_params,
     initial_resources,
     initial_cell_energy,
+    _,
     _,
     _,
 ) = process_config(config)
@@ -174,7 +175,7 @@ fig.text(
 
 outpath = (
     Path(__file__).parent
-    / f"Graphs/No_Resistance/auc_fragility_logistic_{n_cycles}_cycles_Regime_C_?.png"
+    / f"Graphs/No_Resistance/auc_fragility_logistic_{n_cycles}_cycles_Regime_C.png"
 )
 outpath.parent.mkdir(parents=True, exist_ok=True)
 

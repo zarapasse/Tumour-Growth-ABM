@@ -52,6 +52,7 @@ config["simulation"]["steps"] = steps  # overwrite horizon
     initial_cell_energy,
     p_mutation,
     initial_resistant_fraction,
+    fitness_cost,
 ) = process_config(config)
 
 x_bar_values = np.arange(10, 100, 5)
@@ -64,7 +65,6 @@ F_AUC_std = []
 baseline = [{"name": "No drug", "schedule": [], "alpha": 0.0}]
 base_out = run_abm_resistant_logistic(config, baseline, seed=42)
 
-# NEW API: per-run trajectories are in "all_total"
 base_trajs_total = base_out["all_total"][0]  # shape (n_runs, steps+1)
 AUC0 = compute_auc(base_trajs_total, dt)  # shape (n_runs,)
 AUC0_mean = float(AUC0.mean())
@@ -148,6 +148,7 @@ panel_lines = [
     "----------",
     f"p_mutation             = {p_mutation}",
     f"initial_resistant_frac = {initial_resistant_fraction}",
+    f"fitness_cost           = {fitness_cost}",
     "",
     "Hill parameters",
     "---------------",
@@ -176,5 +177,5 @@ outpath = (
 outpath.parent.mkdir(parents=True, exist_ok=True)
 
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-plt.show()
-# plt.close()
+# plt.show()
+plt.close()

@@ -33,6 +33,7 @@ def process_config(config):
     p_mutation = sim_params["p_mutation"]
     initial_resistant_fraction = sim_params["initial_resistant_fraction"]
     initial_cell_energy = sim_params["initial_cell_energy"]
+    fitness_cost = sim_params["fitness_cost"]
 
     hill_params = None
     if hill is not None:
@@ -57,6 +58,7 @@ def process_config(config):
         initial_cell_energy,
         p_mutation,
         initial_resistant_fraction,
+        fitness_cost,
     )
 
 
@@ -76,6 +78,7 @@ def run_abm_logistic(config, scenarios, seed=None, compute_fragility=False):
         res_params,
         initial_resources,
         initial_cell_energy,
+        _,
         _,
         _,
     ) = process_config(config)
@@ -157,6 +160,7 @@ def run_abm_resistant_logistic(config, scenarios, seed=None, compute_fragility=F
         initial_cell_energy,
         p_mutation,
         initial_resistant_fraction,
+        fitness_cost,
     ) = process_config(config)
 
     time = np.arange(steps + 1) * dt
@@ -191,6 +195,7 @@ def run_abm_resistant_logistic(config, scenarios, seed=None, compute_fragility=F
                 initial_cell_energy=initial_cell_energy,
                 p_mutation=p_mutation,
                 initial_resistant_fraction=initial_resistant_fraction,
+                fitness_cost=fitness_cost,
                 res_params=res_params,
                 alpha=sc["alpha"],
                 hill_params=hill_params,
@@ -477,3 +482,14 @@ def continuum_logistic_with_pkpd(
     k_grid = np.array([hill_kill_rate(c, hill_params) for c in conc_grid], dtype=float)
 
     return N_sol, conc_grid, conc_grid, k_grid
+
+
+def pk_conc(t, schedule, alpha):
+    t = np.asarray(t)
+    conc = np.zeros_like(t, dtype=float)
+
+    for amount, t_dose in schedule:
+        dt = t - t_dose
+        conc += amount * np.exp(-alpha * dt) * (dt >= 0)
+
+    return conc

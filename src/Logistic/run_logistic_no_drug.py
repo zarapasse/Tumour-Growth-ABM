@@ -25,6 +25,7 @@ with open(CONFIG_PATH, "r") as f:
     initial_cell_energy,
     _,
     _,
+    _,
 ) = process_config(config)
 time = np.arange(steps + 1) * dt
 

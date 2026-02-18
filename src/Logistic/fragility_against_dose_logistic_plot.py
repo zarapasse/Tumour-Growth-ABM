@@ -51,6 +51,7 @@ config["simulation"]["steps"] = steps
     initial_cell_energy,
     _,
     _,
+    _,
 ) = process_config(config)
 
 x_bar_values = np.arange(10, 100, 2.5)
@@ -149,11 +150,11 @@ fig.text(
 
 outpath = (
     Path(__file__).parent
-    / f"Graphs/No_Resistance/Fragility_vs_mean_dose_logistic_{n_cycles}_cycles_Regime_C?.png"
+    / f"Graphs/No_Resistance/Fragility_vs_mean_dose_logistic_{n_cycles}_cycles_Regime_C.png"
 )
 outpath.parent.mkdir(parents=True, exist_ok=True)
 
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-plt.show()
+# plt.show()
 # Close figure when running on command line
-# plt.close()
+plt.close()

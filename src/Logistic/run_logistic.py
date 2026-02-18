@@ -19,11 +19,11 @@ with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
 # ---------------- Build scenarios ---------------- #
-x_bar = 20
+x_bar = 30
 n_doses_per_cycle = 2
 total_dose_per_cycle = x_bar * n_doses_per_cycle
 sigma = x_bar / 2
-n_cycles = 4
+n_cycles = 6
 cycle_length = 12
 alpha_val = 1
 
@@ -48,6 +48,7 @@ scenarios = make_fragility_test_scenarios(
     res_params,
     initial_resources,
     initial_cell_energy,
+    _,
     _,
     _,
 ) = process_config(config)

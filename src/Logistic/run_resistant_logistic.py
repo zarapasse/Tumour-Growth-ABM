@@ -51,6 +51,7 @@ scenarios = make_fragility_test_scenarios(
     initial_cell_energy,
     p_mutation,
     initial_resistant_fraction,
+    fitness_cost,
 ) = process_config(config)
 
 abm_results = run_abm_resistant_logistic(config, scenarios, seed=42)
@@ -232,6 +233,7 @@ param_lines = [
     "----------",
     f"p_mutation              = {p_mutation}",
     f"initial_resistant_frac  = {initial_resistant_fraction}",
+    f"fitness_cost            = {fitness_cost}",
     "",
     "Hill PD",
     "-------",

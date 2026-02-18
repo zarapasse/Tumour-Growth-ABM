@@ -42,12 +42,12 @@ class TumourCell(Agent):
 
         # 2) Energy-depletion death
         if self.energy <= 0.0:
-            self.remove()
+            self.model.kill_cell(self)
             return
 
         # 3) Stochastic death (independent Bernoulli trial)
         if self.model.rng.random() < self.model.p_death:
-            self.remove()
+            self.model.kill_cell(self)
             return
 
         # 4) Resource uptake (bounded by remaining capacity + availability)
@@ -76,7 +76,10 @@ class TumourResistantCell(Agent):
     def __init__(self, model, energy):
         super().__init__(model)
         self.energy = float(energy)
-        self.p_baseline_death = self.model.p_baseline_death
+        self.p_death = self.model.p_baseline_death
+        self.p_birth = self.model.p_birth * (
+            1.0 - self.model.fitness_cost
+        )  # resistant cells have a fitness cost
 
     def step(self):
         maintenance = self.model.res_params.maintenance_cost
@@ -87,12 +90,12 @@ class TumourResistantCell(Agent):
 
         # 2) Energy-depletion death
         if self.energy <= 0.0:
-            self.remove()
+            self.model.kill_cell(self)
             return
 
         # 3) Stochastic death (unaffected by drug)
-        if self.model.rng.random() < self.p_baseline_death:
-            self.remove()
+        if self.model.rng.random() < self.p_death:
+            self.model.kill_cell(self)
             return
 
         # 4) Resource uptake (bounded by remaining capacity + availability)
@@ -105,7 +108,7 @@ class TumourResistantCell(Agent):
         # 5) Division attempt (independent Bernoulli trial, gated by feasibility)
         feasible_birth = self.energy > self.model.res_params.division_threshold
 
-        if feasible_birth and (self.model.rng.random() < self.model.p_birth):
+        if feasible_birth and (self.model.rng.random() < self.p_birth):
             self.energy *= 0.5
             self.model._birth_buffer_resistant.append(self.energy)
 
@@ -122,6 +125,7 @@ class ResistantTumourModel(Model):
         initial_cell_energy,
         p_mutation,
         initial_resistant_fraction,
+        fitness_cost,
         res_params=None,
         alpha=0.0,
         hill_params=None,
@@ -135,13 +139,10 @@ class ResistantTumourModel(Model):
 
         self.resources = float(initial_resources)
         self.res_params = res_params
+        self.fitness_cost = float(fitness_cost)
 
         self.birth_rate = float(birth_rate)
         self.death_rate = float(death_rate)
-
-        # updated each step based on PK/PD
-        self.p_birth = 0.0
-        self.p_death = 0.0
 
         self.p_baseline_death = 1.0 - np.exp(-self.death_rate * self.dt)
         self.p_mutation = float(p_mutation)
@@ -153,29 +154,28 @@ class ResistantTumourModel(Model):
         self.hill = hill_params
         self.drug_conc = 0.0
 
-        # Birth buffer (new agents added after stepping)
-        self._birth_buffer = []
-        self._birth_buffer_resistant = []
-
-        initial_resistant_cells = int(round(initial_cells * initial_resistant_fraction))
-        initial_sensitive_cells = int(initial_cells) - initial_resistant_cells
-
-        for _ in range(initial_sensitive_cells):
-            TumourCell(self, energy=float(initial_cell_energy))
-
-        for _ in range(initial_resistant_cells):
-            TumourResistantCell(self, energy=float(initial_cell_energy))
-
-        # initialise counts
-        self.n_sensitive = sum(a.cell_type == "sensitive" for a in self.agents)
-        self.n_resistant = len(self.agents) - self.n_sensitive
-
         # initialise PK/PD at t=0 so t=0 row is meaningful
         self.drug_conc = self.pk_conc(self.t)
         kill = self.hill_equation(self.drug_conc)
         self.effective_death_rate = self.death_rate + kill
         self.p_birth = 1.0 - np.exp(-self.birth_rate * self.dt)
         self.p_death = 1.0 - np.exp(-self.effective_death_rate * self.dt)
+
+        # Birth buffer (new agents added after stepping)
+        self._birth_buffer = []
+        self._birth_buffer_resistant = []
+
+        self.n_sensitive = 0
+        self.n_resistant = 0
+
+        n_resistant = int(round(initial_cells * initial_resistant_fraction))
+        n_sensitive = int(initial_cells) - n_resistant
+
+        for _ in range(n_sensitive):
+            self.spawn_sensitive(energy=float(initial_cell_energy))
+
+        for _ in range(n_resistant):
+            self.spawn_resistant(energy=float(initial_cell_energy))
 
         self.datacollector = DataCollector(
             model_reporters={
@@ -191,6 +191,24 @@ class ResistantTumourModel(Model):
         )
 
         self.datacollector.collect(self)  # collect t=0
+
+    def spawn_sensitive(self, energy):
+        """Spawn a new sensitive cell."""
+        TumourCell(self, energy=float(energy))
+        self.n_sensitive += 1
+
+    def spawn_resistant(self, energy):
+        """Spawn a new resistant cell."""
+        TumourResistantCell(self, energy=float(energy))
+        self.n_resistant += 1
+
+    def kill_cell(self, cell):
+        """Kill a cell and update counts."""
+        if cell.cell_type == "sensitive":
+            self.n_sensitive -= 1
+        else:
+            self.n_resistant -= 1
+        cell.remove()
 
     def pk_conc(self, t):
         """Exact PK concentration at time t from bolus doses with exponential decay."""
@@ -242,10 +260,10 @@ class ResistantTumourModel(Model):
 
         # 5) Add newborns after all updates
         for e in self._birth_buffer:
-            TumourCell(self, energy=float(e))
+            self.spawn_sensitive(energy=float(e))
 
         for e in self._birth_buffer_resistant:
-            TumourResistantCell(self, energy=float(e))
+            self.spawn_resistant(energy=float(e))
 
         # 6) Advance time
         self.t += self.dt
@@ -253,7 +271,7 @@ class ResistantTumourModel(Model):
         self.n_sensitive = sum(a.cell_type == "sensitive" for a in self.agents)
         self.n_resistant = len(self.agents) - self.n_sensitive
 
-        # 6) recompute PK/PD at the NEW time for consistent reporting
+        # 6) recompute PK/PD at the new time
         self.drug_conc = self.pk_conc(self.t)
         kill = self.hill_equation(self.drug_conc)
         self.effective_death_rate = self.death_rate + kill
