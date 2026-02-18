@@ -295,3 +295,53 @@ def analytic_population_with_pk(
 def analytic_population_no_drug(time, N0, birth_rate, death_rate):
     """Closed-form exponential growth/decay with no drug."""
     return N0 * np.exp((birth_rate - death_rate) * time)
+
+
+def plot_composition_with_fraction(ax, time, sens, resi, title):
+    total = sens + resi
+    frac = resi / np.maximum(1.0, total)
+
+    # Stackplot
+    ax.stackplot(
+        time,
+        sens,
+        resi,
+        labels=["Sensitive", "Resistant"],
+        colors=["tab:blue", "tab:red"],
+        alpha=0.70,
+        zorder=1,
+    )
+    ax.set_title(title, loc="left", fontsize=11)
+    ax.set_xlabel("Time (days)")
+    ax.set_ylabel("Cells")
+    ax.grid(True, alpha=0.3)
+
+    # Fraction on twin axis
+    ax2 = ax.twinx()
+    ax2.plot(
+        time,
+        frac,
+        color="0.35",
+        ls="--",
+        lw=2.2,
+        zorder=10,
+        label="Resistant fraction",
+    )
+    ax2.set_ylim(0, 1)
+    ax2.set_ylabel("")
+    ax2.tick_params(axis="y", labelsize=9)
+
+    # Combined legend below axis (close to plot)
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(
+        h1 + h2,
+        l1 + l2,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.10),
+        ncol=3,
+        fontsize=8,
+        frameon=False,
+        handlelength=2.2,
+        columnspacing=1.2,
+    )

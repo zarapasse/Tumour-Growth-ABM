@@ -28,6 +28,7 @@ from utils import (
     run_abm,
     run_abm_resistance,
     pk_concentration_series,
+    plot_composition_with_fraction,
 )
 
 # ---------------------- Load config ---------------------- #
@@ -203,38 +204,23 @@ axA.set_ylabel("Cells")
 axA.grid(True, alpha=0.3)
 axA.legend(ncol=2, fontsize=9)
 
-# (B) even composition
-sens_even = results[0]["sens_mean"]
-res_even = results[0]["res_mean"]
-axB.stackplot(
+# (B) even composition + resistant fraction
+plot_composition_with_fraction(
+    axB,
     time,
-    sens_even,
-    res_even,
-    labels=["Sensitive", "Resistant"],
-    colors=["tab:blue", "tab:red"],
-    alpha=0.75,
+    results[0]["sens_mean"],
+    results[0]["res_mean"],
+    r"$\mathbf{(B)}$  Even schedule: composition",
 )
-axB.set_title(r"$\mathbf{(B)}$  Even schedule: composition", loc="left", fontsize=11)
-axB.set_xlabel("Time (days)")
-axB.set_ylabel("Cells")
-axB.grid(True, alpha=0.3)
-axB.legend(fontsize=9)
 
-# (C) uneven composition
-sens_odd = results[1]["sens_mean"]
-res_odd = results[1]["res_mean"]
-axC.stackplot(
+# (C) uneven composition + resistant fraction
+plot_composition_with_fraction(
+    axC,
     time,
-    sens_odd,
-    res_odd,
-    labels=["Sensitive", "Resistant"],
-    colors=["tab:blue", "tab:red"],
-    alpha=0.75,
+    results[1]["sens_mean"],
+    results[1]["res_mean"],
+    r"$\mathbf{(C)}$  Uneven schedule: composition",
 )
-axC.set_title(r"$\mathbf{(C)}$  Uneven schedule: composition", loc="left", fontsize=11)
-axC.set_xlabel("Time (days)")
-axC.grid(True, alpha=0.3)
-axC.legend(fontsize=9)
 
 # (D) PK profiles
 for i, sc in enumerate(scenarios):
