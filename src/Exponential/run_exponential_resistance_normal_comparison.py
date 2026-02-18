@@ -39,10 +39,10 @@ seed = 42
 print("Running fragility test scenarios...")
 
 # ---------------------- Scenario parameters ---------------------- #
-x_bar = 30
+x_bar = 20
 n_doses_per_cycle = 2
 total_dose_per_cycle = x_bar * n_doses_per_cycle
-sigma = total_dose_per_cycle / 2
+sigma = x_bar / 2
 n_cycles = 4
 cycle_length = 12
 alpha_val = 1.0
@@ -80,13 +80,6 @@ print("Running resistant ABM...")
 abm_resist = run_abm_resistance(
     config, scenarios, seed=seed, compute_fragility=False, enable_resistance=True
 )
-
-# sanity: ensure same time grid #! Delete once works
-if not np.allclose(time, abm_resist["time"]):
-    raise ValueError(
-        "Normal and resistant ABMs returned different time grids. Check dt/steps consistency."
-    )
-
 # ---------------------- Results ---------------------- #
 results = []
 for i, sc in enumerate(scenarios):
@@ -303,20 +296,7 @@ outpath = (
     Path(__file__).parent / "Graphs/Resistance/exponential_normal_vs_resistant.png"
 )
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-plt.show()
+#plt.show()
+plt.close(fig)
 
 print(f"Saved plot: {outpath}")
-
-# ---------------------- Print summary ---------------------- #
-print("\nSchedules compared:")
-for res in results:
-    final_normal = float(res["normal_mean"][-1])
-    final_total = float(res["resist_total_mean"][-1])
-    final_s = float(res["sens_mean"][-1])
-    final_r = float(res["res_mean"][-1])
-
-    print(f'- {res["name"]}: doses={len(res["schedule"])} doses, alpha={res["alpha"]}')
-    print(f"  Final normal ABM:    {final_normal:.0f}")
-    print(
-        f"  Final resistant ABM: {final_total:.0f} (S: {final_s:.0f}, R: {final_r:.0f})"
-    )

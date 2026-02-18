@@ -49,11 +49,11 @@ class TumourCell(Agent):
         if self.model.rng.random() < p_event:  
             if self.model.rng.random() < (b/r):
                 if self.model.enable_resistance and (self.model.rng.random() < self.model.p_mutation):
-                    ResistantTumourCell(self.model)
+                    self.model.spawn_resistant()
                 else:
-                    TumourCell(self.model)
+                    self.model.spawn_sensitive()
             else:
-                self.remove()
+                self.model.kill_cell(self)
 
 
 class ResistantTumourCell(Agent):
@@ -77,9 +77,9 @@ class ResistantTumourCell(Agent):
         
         if self.model.rng.random() < p_event:  
             if self.model.rng.random() < (b/r):
-                ResistantTumourCell(self.model)
+                self.model.spawn_resistant()
             else:
-                self.remove()
+                self.model.kill_cell(self)
 class TumourModel(Model):
     """
     Agent-based birth–death tumour model with optional drug resistance and PK/PD drug effect.
@@ -121,30 +121,50 @@ class TumourModel(Model):
         self.drug_conc = 0.0
         self.effective_death_rate = self.death_rate
         
+        self.n_sensitive = 0
+        self.n_resistant = 0
+        
         # create initial population with specified resistant fraction
         n_resistant = int(initial_cells * self.initial_resistant_fraction)
         n_sensitive = initial_cells - n_resistant
         
         for _ in range(n_sensitive):
-            TumourCell(self)
+            self.spawn_sensitive()
         for _ in range(n_resistant):
-            ResistantTumourCell(self)
-            
+            self.spawn_resistant()            
 
         self.datacollector = DataCollector(
             model_reporters={
                 "t": lambda m: m.t,
-                "Sensitive": lambda m: sum(a.cell_type == "sensitive" for a in m.agents),
-                "Resistant": lambda m: sum(a.cell_type == "resistant" for a in m.agents),
-                "Total": lambda m: len(m.agents),
+                "Sensitive": lambda m: m.n_sensitive,
+                "Resistant": lambda m: m.n_resistant,
+                "Total": lambda m: m.n_sensitive + m.n_resistant,
                 "ResistantFraction": lambda m: (
-                    sum(a.cell_type == "resistant" for a in m.agents) / max(1, len(m.agents))
+                    m.n_resistant / max(1, m.n_sensitive + m.n_resistant)
                 ),
                 "DrugConc": lambda m: m.drug_conc,
                 "KillRate": lambda m: m.effective_death_rate - m.death_rate,
             }
         )
         self.datacollector.collect(self)   # collect t=0
+        
+    def spawn_sensitive(self):
+        """Spawn a new sensitive cell."""
+        TumourCell(self)
+        self.n_sensitive += 1
+        
+    def spawn_resistant(self):
+        """Spawn a new resistant cell."""
+        ResistantTumourCell(self)
+        self.n_resistant += 1
+        
+    def kill_cell(self, cell):
+        """Kill a cell and update counts."""
+        if cell.cell_type == "sensitive":
+            self.n_sensitive -= 1
+        else:
+            self.n_resistant -= 1
+        cell.remove()
 
     def pk_conc(self, t):
         """Compute total drug concentration at time t using exact PK decay."""
