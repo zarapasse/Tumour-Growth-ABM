@@ -55,7 +55,7 @@ config["simulation"]["steps"] = steps  # overwrite horizon
     fitness_cost,
 ) = process_config(config)
 
-x_bar_values = np.arange(10, 100, 5)
+x_bar_values = np.arange(10, 100, 2.5)
 
 # Store values
 F_AUC_mean = []
@@ -177,5 +177,5 @@ outpath = (
 outpath.parent.mkdir(parents=True, exist_ok=True)
 
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-# plt.show()
-plt.close()
+plt.show()
+#plt.close()

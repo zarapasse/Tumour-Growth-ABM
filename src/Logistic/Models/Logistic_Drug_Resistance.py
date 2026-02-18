@@ -77,9 +77,9 @@ class TumourResistantCell(Agent):
         super().__init__(model)
         self.energy = float(energy)
         self.p_death = self.model.p_baseline_death
-        self.p_birth = self.model.p_birth * (
-            1.0 - self.model.fitness_cost
-        )  # resistant cells have a fitness cost
+        birth_rate = self.model.birth_rate * (1.0 - self.model.fitness_cost)
+        self.p_birth = 1.0 - np.exp(-birth_rate * self.model.dt)
+        # resistant cells have a fitness cost
 
     def step(self):
         maintenance = self.model.res_params.maintenance_cost
@@ -167,7 +167,7 @@ class ResistantTumourModel(Model):
 
         self.n_sensitive = 0
         self.n_resistant = 0
-
+        
         n_resistant = int(round(initial_cells * initial_resistant_fraction))
         n_sensitive = int(initial_cells) - n_resistant
 
@@ -176,7 +176,7 @@ class ResistantTumourModel(Model):
 
         for _ in range(n_resistant):
             self.spawn_resistant(energy=float(initial_cell_energy))
-
+        
         self.datacollector = DataCollector(
             model_reporters={
                 "t": lambda m: m.t,
@@ -191,7 +191,7 @@ class ResistantTumourModel(Model):
         )
 
         self.datacollector.collect(self)  # collect t=0
-
+        
     def spawn_sensitive(self, energy):
         """Spawn a new sensitive cell."""
         TumourCell(self, energy=float(energy))
@@ -267,9 +267,6 @@ class ResistantTumourModel(Model):
 
         # 6) Advance time
         self.t += self.dt
-
-        self.n_sensitive = sum(a.cell_type == "sensitive" for a in self.agents)
-        self.n_resistant = len(self.agents) - self.n_sensitive
 
         # 6) recompute PK/PD at the new time
         self.drug_conc = self.pk_conc(self.t)

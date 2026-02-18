@@ -2,15 +2,15 @@
   "simulation": {
     "initial_cells": 600,
     "birth_rate": 0.2,
-    "death_rate": 0.15,
+    "death_rate": 0.1,
     "dt": 0.1,
-    "steps": 800,
-    "n_runs": 2,
+    "steps": 480,
+    "n_runs": 500,
     "p_mutation": 0.01,
     "initial_resources": 0,
-    "initial_resistant_fraction": 0.01,
+    "initial_resistant_fraction": 0.1,
     "initial_cell_energy":8.0,
-    "fitness_cost": 0.1
+    "fitness_cost": 0.05
   },
 
   "resource_parameters": {
@@ -22,8 +22,8 @@
   },
 
   "hill_parameters": {
-    "K_kill": 5.0,
+    "K_kill": 3.0,
     "C": 35.0,
-    "n": 10.0
+    "n": 3.0
   }
 }

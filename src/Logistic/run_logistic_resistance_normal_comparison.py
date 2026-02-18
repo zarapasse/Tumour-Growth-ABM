@@ -12,6 +12,7 @@ from utils_logistic import (
     run_abm_logistic,
     run_abm_resistant_logistic,
     pk_conc,
+    plot_composition,
 )
 
 # ---------------- Load Config ---------------- #
@@ -164,26 +165,8 @@ axA.legend(ncol=2, fontsize=9)
 
 
 # ------------------- MIDDLE: composition stackplots ------------------- #
-def plot_composition(ax, res, title):
-    sens = res["mean_sensitive"]
-    resi = res["mean_resistant"]
-
-    ax.stackplot(
-        time,
-        sens,
-        resi,
-        labels=["Sensitive", "Resistant"],
-        colors=["tab:blue", "tab:red"],
-        alpha=0.85,
-    )
-    ax.set_title(title)
-    ax.set_ylabel("Cells")
-    ax.grid(alpha=0.3)
-    ax.legend(loc="upper left", fontsize=9)
-
-
-plot_composition(axB, results[0], "Even schedule: Sensitive vs Resistant")
-plot_composition(axC, results[1], "Odd schedule: Sensitive vs Resistant")
+plot_composition(axB, results[0], "Even schedule: Sensitive vs Resistant", time)
+plot_composition(axC, results[1], "Odd schedule: Sensitive vs Resistant", time)
 
 # (D) PK profiles
 
@@ -201,8 +184,8 @@ axD.legend(fontsize=9, ncol=2)
 
 # ---------------------- Right panel ---------------------- #
 param_lines = [
-    "Simulation",
-    "----------",
+    "Simulation Parameters",
+    "---------------------",
     f"initial_cells = {initial_cells}",
     f"birth_rate    = {birth_rate}",
     f"death_rate    = {death_rate}",
@@ -210,21 +193,21 @@ param_lines = [
     f"steps         = {steps}",
     f"n_runs        = {n_runs}",
     "",
-    "Resources",
-    "---------",
+    "Resource Parameters",
+    "-------------------",
     f"energy_capacity  = {res_params.energy_capacity}",
     f"div_threshold    = {res_params.division_threshold}",
     f"maintenance_cost = {res_params.maintenance_cost}",
     f"resource_influx  = {res_params.resource_influx}",
     "",
-    "Resistance",
-    "----------",
+    "Resistance Parameters",
+    "-------------------",
     f"p_mutation              = {p_mutation}",
     f"initial_resistant_frac  = {initial_resistant_fraction}",
     f"fitness_cost            = {fitness_cost}",
     "",
     "Hill Parameters",
-    "-------",
+    "---------------",
     f"K_kill = {hill_params.K_kill}",
     f"C      = {hill_params.C}",
     f"n      = {hill_params.n}",
@@ -245,9 +228,9 @@ axP.text(
 
 fig.tight_layout()
 
-outpath = Path(__file__).parent / "Graphs/Resistance/logistic_normal_vs_resistant.png"
+outpath = Path(__file__).parent / "Graphs/Resistance/logistic_normal_vs_resistant_Regime_C.png"
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-# plt.show()
-plt.close(fig)
+plt.show()
+#plt.close(fig)
 
 print(f"Saved plot: {outpath}")

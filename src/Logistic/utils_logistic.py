@@ -493,3 +493,56 @@ def pk_conc(t, schedule, alpha):
         conc += amount * np.exp(-alpha * dt) * (dt >= 0)
 
     return conc
+
+
+def plot_composition(ax, res, title, time):
+    sens = res["mean_sensitive"]
+    resi = res["mean_resistant"]
+    total = sens + resi
+    frac = resi / np.maximum(1.0, total)
+
+    # --- Stackplot ---
+    ax.stackplot(
+        time,
+        sens,
+        resi,
+        labels=["Sensitive", "Resistant"],
+        colors=["tab:blue", "tab:red"],
+        alpha=0.70,
+        zorder=1,
+    )
+
+    ax.set_title(title)
+    ax.set_ylabel("Cells")
+    ax.grid(alpha=0.3)
+
+    # --- Twin axis for resistant fraction ---
+    ax2 = ax.twinx()
+    ax2.plot(
+        time,
+        frac,
+        color="0.35",      # grey
+        ls="--",           # dashed
+        lw=2.2,
+        zorder=10,
+        label="Resistant fraction",
+    )
+    ax2.set_ylim(0, 1)
+    ax2.set_ylabel("")
+    ax2.tick_params(axis="y", labelsize=9)
+
+    # --- Combined legend BELOW the axis ---
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+
+    ax.legend(
+        h1 + h2,
+        l1 + l2,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.1),   # below axis
+        ncol=3,
+        fontsize=8,
+        frameon=False,
+        handlelength=2.2,
+        columnspacing=1.2,
+    )
