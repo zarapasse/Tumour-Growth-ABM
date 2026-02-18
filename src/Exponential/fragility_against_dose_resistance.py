@@ -188,7 +188,7 @@ outpath = (
     / f"Graphs/Resistance/Fragility_vs_mean_dose_{n_cycles}_cycles_with_resistance.png"
 )
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-#plt.show()
+# plt.show()
 plt.close(fig)
 
 print(f"Saved plot: {outpath}")

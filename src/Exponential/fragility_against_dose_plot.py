@@ -46,8 +46,8 @@ dt = float(config["simulation"]["dt"])
 steps = int(round(t_end / dt))  # ABM will return steps+1 time points (including t=0)
 config["simulation"]["steps"] = steps
 
-initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _, _ = process_config(
-    config
+initial_cells, birth_rate, death_rate, dt, steps, n_runs, hill_params, _, _, _ = (
+    process_config(config)
 )
 
 x_bar_values = np.arange(10, 100, 2.5)
@@ -59,7 +59,7 @@ F_abm_std = []
 # ----------------- Main loop ----------------- #
 for x_bar in x_bar_values:
     total_dose_per_cycle = x_bar * n_doses_per_cycle
-    sigma = x_bar / 2.0  
+    sigma = x_bar / 2.0
 
     scenarios = make_fragility_test_scenarios(
         total_dose_per_cycle,
@@ -171,7 +171,7 @@ outpath = (
     / f"Graphs/No_Resistance/Fragility_vs_mean_dose_{n_cycles}_cycles_0.01_dt.png"
 )
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-#plt.show()
+# plt.show()
 plt.close(fig)
 
 print(f"Saved plot: {outpath}")

@@ -28,11 +28,13 @@ k = 0.25
 
 plt.rcParams["axes.titlepad"] = 6  # tighter titles
 
+
 # ---------------- Helper functions ---------------- #
 def gamma_kill(x):
     # Hill kill function γ(x)
     x = np.maximum(x, 0.0)  # safety
     return K_kill * (x**n) / (x**n + C**n)
+
 
 def pk_profile(t, x_bar, sigma, alpha):
     """Fast-decay, two-dose profile: first half uses x_bar+sigma, second half uses x_bar-sigma."""
@@ -43,6 +45,7 @@ def pk_profile(t, x_bar, sigma, alpha):
         else:
             x_t[i] = (x_bar - sigma) * np.exp(-alpha * (ti - T / 2))
     return x_t
+
 
 def simulate_tumor(x_bar, sigma, alpha):
     t = np.arange(0, T + dt, dt)
@@ -58,17 +61,21 @@ def simulate_tumor(x_bar, sigma, alpha):
 
     return t, x_t, V
 
+
 def fragility_function(x_bar, sigma, alpha):
     _, _, V_even = simulate_tumor(x_bar, 0, alpha)
     _, _, V_uneven = simulate_tumor(x_bar, sigma, alpha)
     return (V_uneven[-1] - V_even[-1]) / V0
 
+
 def compute_kill_curve():
     x_vals = dose_values
     return x_vals, gamma_kill(x_vals)
 
+
 def set_panel_title(ax, label, title):
     ax.set_title(rf"$\mathbf{{({label})}}$ {title}", loc="left", fontsize=12)
+
 
 # ---------------- Plot ---------------- #
 fig = plt.figure(figsize=(20, 12))
@@ -80,7 +87,9 @@ label_idx = 0
 for row, alpha in enumerate(alpha_values):
     # Example trajectories
     t_even, x_even, v_even = simulate_tumor(mean_dose, 0, alpha)
-    t_uneven, x_uneven, v_uneven = simulate_tumor(mean_dose, mean_dose / 2, alpha)  # choose uneven sigma from your list
+    t_uneven, x_uneven, v_uneven = simulate_tumor(
+        mean_dose, mean_dose / 2, alpha
+    )  # choose uneven sigma from your list
 
     fragility_results = {}
     for sigma in sigma_values:
@@ -140,13 +149,18 @@ for row, alpha in enumerate(alpha_values):
     ax2.legend()
     ax2.grid(True)
 
-plt.savefig("misc_analysis/graphs/Fast_PK_Results_labelled.png", dpi=300, bbox_inches="tight")
+plt.savefig(
+    "misc_analysis/graphs/Fast_PK_Results_labelled.png", dpi=300, bbox_inches="tight"
+)
 plt.show()
+
+
 # ---------------- Helper functions ---------------- #
 def gamma_kill(x):
     # Hill kill function γ(x)
     x = np.maximum(x, 0.0)  # safety
     return K_kill * (x**n) / (x**n + C**n)
+
 
 def pk_profile(t, x_bar, sigma, alpha):
     """Fast-decay, two-dose profile: first half uses x_bar+sigma, second half uses x_bar-sigma."""
@@ -157,6 +171,7 @@ def pk_profile(t, x_bar, sigma, alpha):
         else:
             x_t[i] = (x_bar - sigma) * np.exp(-alpha * (ti - T / 2))
     return x_t
+
 
 def simulate_tumor(x_bar, sigma, alpha):
     t = np.arange(0, T + dt, dt)
@@ -172,17 +187,21 @@ def simulate_tumor(x_bar, sigma, alpha):
 
     return t, x_t, V
 
+
 def fragility_function(x_bar, sigma, alpha):
     _, _, V_even = simulate_tumor(x_bar, 0, alpha)
     _, _, V_uneven = simulate_tumor(x_bar, sigma, alpha)
     return (V_uneven[-1] - V_even[-1]) / V0
 
+
 def compute_kill_curve():
     x_vals = dose_values
     return x_vals, gamma_kill(x_vals)
 
+
 def set_panel_title(ax, label, title):
     ax.set_title(rf"$\mathbf{{({label})}}$ {title}", loc="left", fontsize=12)
+
 
 # ---------------- Plot ---------------- #
 fig = plt.figure(figsize=(20, 12))
@@ -194,7 +213,9 @@ label_idx = 0
 for row, alpha in enumerate(alpha_values):
     # Example trajectories
     t_even, x_even, v_even = simulate_tumor(mean_dose, 0, alpha)
-    t_uneven, x_uneven, v_uneven = simulate_tumor(mean_dose, mean_dose / 2, alpha)  # choose uneven sigma from your list
+    t_uneven, x_uneven, v_uneven = simulate_tumor(
+        mean_dose, mean_dose / 2, alpha
+    )  # choose uneven sigma from your list
 
     fragility_results = {}
     for sigma in sigma_values:
@@ -254,5 +275,7 @@ for row, alpha in enumerate(alpha_values):
     ax2.legend()
     ax2.grid(True)
 
-plt.savefig("misc_analysis/graphs/Fast_PK_Results_labelled.png", dpi=300, bbox_inches="tight")
+plt.savefig(
+    "misc_analysis/graphs/Fast_PK_Results_labelled.png", dpi=300, bbox_inches="tight"
+)
 plt.show()

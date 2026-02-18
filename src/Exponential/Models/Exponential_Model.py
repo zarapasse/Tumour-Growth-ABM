@@ -13,12 +13,15 @@ Pharmacology:
 - The birth rate is unaffected by the drug.
 """
 
-@dataclass(frozen=True) # ensure they cannot be modified mid simulation
+
+@dataclass(frozen=True)  # ensure they cannot be modified mid simulation
 class HillParams:
     """Hill kill-rate parameters."""
+
     K_kill: float  # max kill rate (>= 0)
-    C: float       # EC50 (> 0)
-    n: float       # Hill coefficient (> 0)
+    C: float  # EC50 (> 0)
+    n: float  # Hill coefficient (> 0)
+
 
 class TumourCell(Agent):
     """Single tumour cell agent.
@@ -32,21 +35,22 @@ class TumourCell(Agent):
         super().__init__(model)
 
     def step(self):
-        b=self.model.birth_rate
-        d=self.model.effective_death_rate
+        b = self.model.birth_rate
+        d = self.model.effective_death_rate
         r = b + d
-        
+
         if r <= 0:
             return
-        
-        #probability of at least one event (birth or death)
+
+        # probability of at least one event (birth or death)
         p_event = 1 - np.exp(-r * self.model.dt)
-        
-        if self.model.rng.random() < p_event:  
-            if self.model.rng.random() < (b/r):
+
+        if self.model.rng.random() < p_event:
+            if self.model.rng.random() < (b / r):
                 TumourCell(self.model)
             else:
                 self.remove()
+
 
 class TumourModel(Model):
     """
@@ -76,13 +80,13 @@ class TumourModel(Model):
         self.birth_rate = birth_rate
         self.death_rate = death_rate
         self.dt = dt
-        
+
         self.t = 0.0
-        
+
         self.alpha = alpha
         self.drug_schedule = drug_schedule if drug_schedule is not None else []
         self.hill = hill_params
-        
+
         # initialise initial values (will change each step)
         self.drug_conc = 0.0
         self.effective_death_rate = death_rate
@@ -90,43 +94,44 @@ class TumourModel(Model):
         # create initial population
         for _ in range(initial_cells):
             TumourCell(self)
-            
+
     def pk_conc(self, t):
         """Compute total drug concentration at time t using exact PK decay."""
         if not self.drug_schedule:
             return 0.0
         if self.alpha == 0:
-            return sum(amount for amount, dose_time in self.drug_schedule if t >= dose_time)
+            return sum(
+                amount for amount, dose_time in self.drug_schedule if t >= dose_time
+            )
 
         total = 0.0
         for amount, dose_time in self.drug_schedule:
             if t >= dose_time:
                 total += amount * np.exp(-self.alpha * (t - dose_time))
         return total
-    
+
     def hill_equation(self, drug_conc):
         """Calculate drug-induced cell death using the Hill Kill function"""
         if self.hill is None or drug_conc <= 0:
             return 0.0
-        
-        x_n = drug_conc ** self.hill.n
-        denominator = x_n + (self.hill.C ** self.hill.n)
-        
+
+        x_n = drug_conc**self.hill.n
+        denominator = x_n + (self.hill.C**self.hill.n)
+
         return float(self.hill.K_kill * (x_n / denominator))
 
     def step(self):
         """Advance one timestep: update PK/PD, then step agents, then advance time."""
 
-        #1. update drug concentration at current time
+        # 1. update drug concentration at current time
         self.drug_conc = self.pk_conc(self.t)
-        
-        #2. update per-step birth/death probabilities based on current drug concentration
+
+        # 2. update per-step birth/death probabilities based on current drug concentration
         kill = self.hill_equation(self.drug_conc)
         self.effective_death_rate = self.death_rate + kill
-        
-        #3. step all agents in random order
-        self.agents.shuffle_do("step")
-        
-        #4. advance time
-        self.t += self.dt
 
+        # 3. step all agents in random order
+        self.agents.shuffle_do("step")
+
+        # 4. advance time
+        self.t += self.dt

@@ -55,9 +55,7 @@ class TumourCell(Agent):
             self.model.resources -= uptake
 
         # 5) Division attempt (independent Bernoulli trial, gated by feasibility)
-        feasible_birth = (
-            self.energy > self.model.res_params.division_threshold
-        )
+        feasible_birth = self.energy > self.model.res_params.division_threshold
 
         if feasible_birth and (self.model.rng.random() < self.model.p_birth):
             self.energy *= 0.5

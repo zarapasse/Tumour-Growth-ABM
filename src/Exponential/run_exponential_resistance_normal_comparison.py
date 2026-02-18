@@ -296,7 +296,7 @@ outpath = (
     Path(__file__).parent / "Graphs/Resistance/exponential_normal_vs_resistant.png"
 )
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-#plt.show()
+# plt.show()
 plt.close(fig)
 
 print(f"Saved plot: {outpath}")

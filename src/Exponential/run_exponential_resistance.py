@@ -221,9 +221,11 @@ axP.text(
 
 fig.tight_layout()
 
-outpath = Path(__file__).parent / "Graphs/Resistance/exponential_resistance_trajectory.png"
+outpath = (
+    Path(__file__).parent / "Graphs/Resistance/exponential_resistance_trajectory.png"
+)
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-#plt.show()
+# plt.show()
 plt.close()
 
 print(f"Saved plot: {outpath}")

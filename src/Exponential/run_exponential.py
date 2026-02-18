@@ -177,7 +177,7 @@ fig.text(
 plt.savefig(
     Path(__file__).parent / "Graphs/No_Resistance/exponential_trajectory.png", dpi=300
 )
-#plt.show()
+# plt.show()
 plt.close(fig)
 
 print("\nSchedules compared:")
