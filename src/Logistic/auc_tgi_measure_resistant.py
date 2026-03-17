@@ -177,5 +177,5 @@ outpath = (
 outpath.parent.mkdir(parents=True, exist_ok=True)
 
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-plt.show()
-#plt.close()
+# plt.show()
+plt.close()

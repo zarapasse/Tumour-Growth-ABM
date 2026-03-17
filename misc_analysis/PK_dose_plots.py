@@ -67,7 +67,7 @@ def figure_clearance_vs_accumulation(
 
     if savepath:
         plt.savefig(savepath, dpi=300)
-    plt.show()
+    # plt.show()
 
 
 def figure_even_vs_uneven_side_by_side_alphas(
@@ -161,6 +161,55 @@ def figure_even_vs_uneven_side_by_side_alphas(
 
     if savepath:
         plt.savefig(savepath, dpi=300)
+    # plt.show()
+
+
+def figure_one_PK_only(
+    schedule,
+    alpha,
+    t_end,
+    n_points=4000,
+    title_left_label="A",
+    schedule_label=None,
+    savepath=None,
+):
+    t = np.linspace(0.0, t_end, n_points)
+    c = pk_concentration_series(t, schedule, alpha)
+
+    dts = _dose_times(schedule)
+
+    # Colour selection
+    color_map = {
+        "Even": "tab:orange",
+        "Uneven": "tab:green",
+    }
+    color = color_map.get(schedule_label, "black")
+
+    fig, ax = plt.subplots(figsize=(5.2, 3.8), constrained_layout=True)
+
+    ax.plot(t, c, lw=2, color=color)
+    ax.fill_between(t, 0, c, alpha=0.25, color=color)
+
+    # for td in dts:
+    #     ax.axvline(td, ls="--", lw=1, alpha=0.5, color=color)
+
+    ax.set_xlim(0.0, t_end)
+    ax.set_ylim(0, 1.05 * c.max())
+
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Drug Concentration")
+    ax.grid(True, alpha=0.3)
+
+    label_text = f"{schedule_label} " if schedule_label else ""
+
+    ax.set_title(
+        rf"{label_text}Dosing Schedule",
+        fontsize=10,
+    )
+
+    if savepath:
+        plt.savefig(savepath, dpi=300)
+
     plt.show()
 
 
@@ -185,4 +234,20 @@ figure_even_vs_uneven_side_by_side_alphas(
     alpha_high=4,
     t_end=2.0,
     savepath="misc_analysis/graphs/PK_Even_vs_Uneven_Side_by_Side.png",
+)
+
+figure_one_PK_only(
+    even_schedule,
+    alpha=5,
+    t_end=2.0,
+    schedule_label="Even",
+    savepath="misc_analysis/graphs/PK_even.png",
+)
+
+figure_one_PK_only(
+    uneven_schedule,
+    alpha=5,
+    t_end=2.0,
+    schedule_label="Uneven",
+    savepath="misc_analysis/graphs/PK_uneven.png",
 )

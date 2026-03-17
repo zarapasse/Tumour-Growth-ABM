@@ -167,7 +167,7 @@ class ResistantTumourModel(Model):
 
         self.n_sensitive = 0
         self.n_resistant = 0
-        
+
         n_resistant = int(round(initial_cells * initial_resistant_fraction))
         n_sensitive = int(initial_cells) - n_resistant
 
@@ -176,7 +176,7 @@ class ResistantTumourModel(Model):
 
         for _ in range(n_resistant):
             self.spawn_resistant(energy=float(initial_cell_energy))
-        
+
         self.datacollector = DataCollector(
             model_reporters={
                 "t": lambda m: m.t,
@@ -191,7 +191,7 @@ class ResistantTumourModel(Model):
         )
 
         self.datacollector.collect(self)  # collect t=0
-        
+
     def spawn_sensitive(self, energy):
         """Spawn a new sensitive cell."""
         TumourCell(self, energy=float(energy))

@@ -12,6 +12,7 @@ from utils_logistic import (
     continuum_logistic_with_pkpd,
     estimate_K_tail,
     fit_r_logit,
+    time_to_dominance,
 )
 
 # ---------------- Load Config ---------------- #
@@ -24,7 +25,7 @@ x_bar = 20
 n_doses_per_cycle = 2
 total_dose_per_cycle = x_bar * n_doses_per_cycle
 sigma = x_bar / 2
-n_cycles = 4
+n_cycles = 8
 cycle_length = 12
 alpha_val = 1
 
@@ -155,26 +156,8 @@ for res, col in zip(results, [col_even, col_odd]):
     for _, t_dose in res["schedule"]:
         ax_top.axvline(t_dose, color=col, ls=":", alpha=0.18)
 
-# ---- baseline ONCE ----
-if baseline is not None:
-    ax_top.plot(
-        time,
-        baseline["mean_total"],
-        "--",
-        color=col_base,
-        lw=2,
-        label="No-drug baseline",
-    )
-    ax_top.fill_between(
-        time,
-        baseline["mean_total"] - baseline["std_total"],
-        baseline["mean_total"] + baseline["std_total"],
-        color=col_base,
-        alpha=0.10,
-    )
-
 ax_top.set_ylabel("Cells")
-ax_top.set_title("Tumour population (total): ABM (±1 SD) and deterministic overlay")
+ax_top.set_title("Tumour population (total)")
 ax_top.legend()
 ax_top.grid(alpha=0.3)
 
@@ -212,6 +195,15 @@ ax_pk.legend()
 ax_pk.grid(alpha=0.3)
 
 # ----------------- parameter info box ----------------- #
+
+
+t50_even = time_to_dominance(
+    time, results[0]["mean_resistant"], results[0]["mean_sensitive"]
+)
+t50_odd = time_to_dominance(
+    time, results[1]["mean_resistant"], results[1]["mean_sensitive"]
+)
+
 param_lines = [
     "Simulation",
     "----------",
@@ -240,6 +232,11 @@ param_lines = [
     f"K_kill = {hill_params.K_kill}",
     f"C      = {hill_params.C}",
     f"n      = {hill_params.n}",
+    "",
+    "Derived metrics",
+    "--------------",
+    f"t50 even = {t50_even}",
+    f"t50 odd  = {t50_odd}",
 ]
 
 param_text = "\n".join(param_lines)
@@ -298,7 +295,7 @@ out_path = (
     Path(__file__).parent
     / "Graphs"
     / "Resistance"
-    / f"logistic_abm_trajectories_{initial_cells}_cells_{n_runs}_runs_{x_bar}.png"
+    / f"logistic_abm_trajectories_unseeded.png"
 )
 
 out_path.parent.mkdir(parents=True, exist_ok=True)

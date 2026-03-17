@@ -165,8 +165,12 @@ axA.legend(ncol=2, fontsize=9)
 
 
 # ------------------- MIDDLE: composition stackplots ------------------- #
-plot_composition(axB, results[0], "Even schedule: Sensitive vs Resistant", time)
-plot_composition(axC, results[1], "Odd schedule: Sensitive vs Resistant", time)
+plot_composition(
+    axB, results[0], r"$\mathbf{(B)}$  Even schedule: Sensitive vs Resistant", time
+)
+plot_composition(
+    axC, results[1], r"$\mathbf{(C)}$  Odd schedule: Sensitive vs Resistant", time
+)
 
 # (D) PK profiles
 
@@ -228,9 +232,12 @@ axP.text(
 
 fig.tight_layout()
 
-outpath = Path(__file__).parent / "Graphs/Resistance/logistic_normal_vs_resistant_Regime_C.png"
+outpath = (
+    Path(__file__).parent
+    / "Graphs/Resistance/logistic_normal_vs_resistant_Regime_C.png"
+)
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-plt.show()
-#plt.close(fig)
+# plt.show()
+plt.close(fig)
 
 print(f"Saved plot: {outpath}")

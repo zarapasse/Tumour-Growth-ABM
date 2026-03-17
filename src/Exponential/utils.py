@@ -338,7 +338,7 @@ def plot_composition_with_fraction(ax, time, sens, resi, title):
         h1 + h2,
         l1 + l2,
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.10),
+        bbox_to_anchor=(0.5, -0.15),
         ncol=3,
         fontsize=8,
         frameon=False,

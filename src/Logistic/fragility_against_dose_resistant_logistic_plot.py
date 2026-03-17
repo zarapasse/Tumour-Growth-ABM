@@ -28,7 +28,7 @@ with open(CONFIG_PATH, "r") as f:
 
 # ----------------- Sweep settings ----------------- #
 n_doses_per_cycle = 2
-n_cycles = 4
+n_cycles = 1
 cycle_length = 12
 alpha_val = 1.0
 
@@ -158,11 +158,11 @@ fig.text(
 
 outpath = (
     Path(__file__).parent
-    / f"Graphs/Resistance/Fragility_vs_mean_dose_logistic_{n_cycles}_cycles_Regime_C?.png"
+    / f"Graphs/Resistance/Fragility_vs_mean_dose_logistic_{n_cycles}_cycles_Regime_A.png"
 )
 outpath.parent.mkdir(parents=True, exist_ok=True)
 
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
-plt.show()
+# plt.show()
 # Close figure when running on command line
-# plt.close()
+plt.close()

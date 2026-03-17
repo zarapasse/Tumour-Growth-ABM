@@ -7,12 +7,12 @@
     "steps": 4800,
     "n_runs": 100,
     "p_mutation": 0.01,
-    "initial_resistant_fraction": 0.01,
-    "fitness_cost": 0.1
+    "initial_resistant_fraction": 0.1,
+    "fitness_cost": 0.05
   },
   "hill_parameters": {
     "K_kill": 1.0,
     "C": 30,
-    "n": 5.0
+    "n": 3.0
   }
 }

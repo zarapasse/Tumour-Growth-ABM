@@ -521,8 +521,8 @@ def plot_composition(ax, res, title, time):
     ax2.plot(
         time,
         frac,
-        color="0.35",      # grey
-        ls="--",           # dashed
+        color="0.35",  # grey
+        ls="--",  # dashed
         lw=2.2,
         zorder=10,
         label="Resistant fraction",
@@ -539,10 +539,25 @@ def plot_composition(ax, res, title, time):
         h1 + h2,
         l1 + l2,
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.1),   # below axis
+        bbox_to_anchor=(0.5, -0.1),  # below axis
         ncol=3,
         fontsize=8,
         frameon=False,
         handlelength=2.2,
         columnspacing=1.2,
     )
+
+
+def time_to_dominance(time, mean_resistant, mean_sensitive):
+    """
+    t50 = first time where R(t) > S(t).
+    Returns float (same units as time) or "n/a" if never dominates.
+    """
+    time = np.asarray(time)
+    R = np.asarray(mean_resistant)
+    S = np.asarray(mean_sensitive)
+
+    idx = np.where(R > S)[0]
+    if idx.size == 0:
+        return "n/a"
+    return float(time[idx[0]])
