@@ -171,13 +171,8 @@ fig.text(
     bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
 )
 
-outpath = (
-    PROJECT_ROOT
-    / "results"
-    / "exponential"
-    / "no_resistance"
-    / f"Fragility_vs_mean_dose_{n_cycles}_cycles_.png"
-)
+outpath = PROJECT_ROOT / "results" / "exponential" / "no_resistance" / f"Fragility_vs_mean_dose_{n_cycles}_cycles_.png"
+outpath.parent.mkdir(parents=True, exist_ok=True)
 
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
 # plt.show()
