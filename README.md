@@ -1,9 +1,9 @@
-# ABM TUMOUR GROWTH
-## Optimal Pharmaceutical Dosing Schedules in Stochastic Tumour Growth Models
+# AGENT-BASED MODELS OF TUMOUR GROWTH
+## Pharmaceutical Dosing Schedule Sensitivity
 
 This repository investigates how tumour response depends on **dosing schedule** under a range of mathematical and computational models.
 
-Developed as part of an MSci Mathematics dissertation at University College London, this work explores schedule sensitivity in tumour growth under treatment.
+This repository was developed as part of an MSci Mathematics dissertation at University College London (UCL), titled **_"Optimal Pharmaceutical Dosing Schedules in Stochastic Tumour Growth Models"_**.
 
 We study how equal total drug doses, administered under different schedules (even vs uneven), can lead to **different treatment outcomes** due to nonlinear pharmacodynamics, ecological constraints, and evolutionary dynamics.
 
