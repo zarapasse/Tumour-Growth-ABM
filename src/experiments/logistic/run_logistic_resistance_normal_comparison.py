@@ -5,8 +5,13 @@ from matplotlib import gridspec
 import numpy as np
 import json
 from pathlib import Path
+import sys
 
-from utils_logistic import (
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.utils_logistic import (
     make_fragility_test_scenarios,
     process_config,
     run_abm_logistic,
@@ -16,8 +21,8 @@ from utils_logistic import (
 )
 
 # ---------------- Load Config ---------------- #
-CONFIG_PATH = Path(__file__).parent / "config_logistic.json"
-with open(CONFIG_PATH, "r") as f:
+CONFIG_PATH = PROJECT_ROOT / "configs" / "logistic_config.json"
+with CONFIG_PATH.open("r", encoding="utf-8") as f:
     config = json.load(f)
 
 print("Running fragility test scenarios...")

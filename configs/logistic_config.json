@@ -5,7 +5,7 @@
     "death_rate": 0.1,
     "dt": 0.1,
     "steps": 900,
-    "n_runs": 500,
+    "n_runs": 1,
     "p_mutation": 0.01,
     "initial_resources": 0,
     "initial_resistant_fraction": 0.0,

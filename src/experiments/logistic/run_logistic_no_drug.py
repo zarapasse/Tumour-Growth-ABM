@@ -1,15 +1,23 @@
-from Logistic.Models.Logistic_Model import TumourModel
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
 
 import json
 from pathlib import Path
 
-from utils_logistic import process_config, fit_logistic_direct, run_abm_logistic
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.utils_logistic import (
+    process_config,
+    fit_logistic_direct,
+    run_abm_logistic,
+)
 
 # ---------------------- Load config ---------------------- #
-CONFIG_PATH = Path(__file__).parent / "config_logistic.json"
-with open(CONFIG_PATH, "r") as f:
+CONFIG_PATH = PROJECT_ROOT / "configs" / "logistic_config.json"
+with CONFIG_PATH.open("r", encoding="utf-8") as f:
     config = json.load(f)
 
 (

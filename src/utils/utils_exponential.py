@@ -1,6 +1,6 @@
 import numpy as np
-from Models.Exponential_Model import TumourModel, HillParams
-from Models.Exponential_Drug_Resistance import TumourModel as ResistantTumourModel
+from src.models.exponential_model import TumourModel, HillParams
+from src.models.exponential_drug_resistance import TumourModel as ResistantTumourModel
 
 
 def process_config(config):

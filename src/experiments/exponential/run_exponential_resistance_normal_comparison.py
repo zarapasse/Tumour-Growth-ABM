@@ -17,12 +17,17 @@ Right:
 
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 
-from utils import (
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.utils_exponential import (
     make_fragility_test_scenarios,
     process_config,
     run_abm,
@@ -32,8 +37,8 @@ from utils import (
 )
 
 # ---------------------- Load config ---------------------- #
-CONFIG_PATH = Path(__file__).parent / "config.json"
-with open(CONFIG_PATH, "r") as f:
+CONFIG_PATH = PROJECT_ROOT / "configs" / "exponential_config.json"
+with CONFIG_PATH.open("r", encoding="utf-8") as f:
     config = json.load(f)
 
 seed = 42
