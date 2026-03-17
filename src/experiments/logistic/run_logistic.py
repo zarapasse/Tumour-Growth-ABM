@@ -222,16 +222,17 @@ fig.text(
     family="monospace",
     bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
 )
-out_path = (
-    Path(__file__).parent
-    / "Graphs"
-    / "No_Resistance"
+
+outpath = (
+    PROJECT_ROOT
+    / "results"
+    / "logistic"
+    / "no_resistance"
     / f"logistic_abm_trajectories_{initial_cells}_cells_{n_runs}_runs_{x_bar}.png"
 )
+outpath.parent.mkdir(parents=True, exist_ok=True)
 
-out_path.parent.mkdir(parents=True, exist_ok=True)
-
-plt.savefig(out_path, dpi=300)
+plt.savefig(outpath, dpi=300)
 plt.show()
 # Close figure when running on command line
 # plt.close()

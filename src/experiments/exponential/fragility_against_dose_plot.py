@@ -172,9 +172,13 @@ fig.text(
 )
 
 outpath = (
-    Path(__file__).parent
-    / f"Graphs/No_Resistance/Fragility_vs_mean_dose_{n_cycles}_cycles_0.01_dt.png"
+    PROJECT_ROOT
+    / "results"
+    / "exponential"
+    / "no_resistance"
+    / f"Fragility_vs_mean_dose_{n_cycles}_cycles_.png"
 )
+
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
 # plt.show()
 plt.close(fig)

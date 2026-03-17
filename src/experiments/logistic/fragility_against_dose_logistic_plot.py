@@ -152,10 +152,12 @@ fig.text(
     family="monospace",
     bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
 )
-
 outpath = (
-    Path(__file__).parent
-    / f"Graphs/No_Resistance/Fragility_vs_mean_dose_logistic_{n_cycles}_cycles_Regime_C.png"
+    PROJECT_ROOT
+    / "results"
+    / "logistic"
+    / "no_resistance"
+    / f"Fragility_vs_mean_dose_logistic_{n_cycles}_cycles.png"
 )
 outpath.parent.mkdir(parents=True, exist_ok=True)
 

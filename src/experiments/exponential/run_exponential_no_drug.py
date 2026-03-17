@@ -91,7 +91,13 @@ fig.text(
 )
 
 plt.tight_layout(rect=(0, 0, 0.82, 1.0))
-outpath = Path(__file__).parent / "Graphs/No_Resistance/Exponential_validation_1_dt.png"
+outpath = (
+    PROJECT_ROOT
+    / "results"
+    / "exponential"
+    / "no_resistance"
+    / f"Exponential_validation.png"
+)
 outpath.parent.mkdir(parents=True, exist_ok=True)
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
 # plt.show()

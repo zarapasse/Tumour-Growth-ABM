@@ -113,17 +113,18 @@ fig.text(
     bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
 )
 
-out_path = (
-    Path(__file__).parent
-    / "Graphs"
-    / "No_Resistance"
+
+outpath = (
+    PROJECT_ROOT
+    / "results"
+    / "logistic"
+    / "no_resistance"
     / f"logistic_no_drug_{initial_cells}_{n_runs}.png"
 )
-
-out_path.parent.mkdir(parents=True, exist_ok=True)
+outpath.parent.mkdir(parents=True, exist_ok=True)
 
 plt.tight_layout(rect=(0, 0, 0.82, 1.0))
-plt.savefig(out_path, dpi=300, bbox_inches="tight")
+plt.savefig(outpath, dpi=300, bbox_inches="tight")
 plt.show()
 # Close figure when running on command line
 # plt.close()

@@ -180,9 +180,18 @@ fig.text(
     bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.95),
 )
 
-plt.savefig(
-    Path(__file__).parent / "Graphs/No_Resistance/exponential_trajectory.png", dpi=300
+outpath = (
+    PROJECT_ROOT
+    / "results"
+    / "exponential"
+    / "no_resistance"
+    / f"exponential_trajectory.png"
 )
+outpath.parent.mkdir(parents=True, exist_ok=True)
+
+plt.savefig(outpath, dpi=300, bbox_inches="tight")
+
+
 # plt.show()
 plt.close(fig)
 

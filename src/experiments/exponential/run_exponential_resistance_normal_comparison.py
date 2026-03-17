@@ -284,8 +284,14 @@ axP.text(
 fig.tight_layout()
 
 outpath = (
-    Path(__file__).parent / "Graphs/Resistance/exponential_normal_vs_resistant_plot.png"
+    PROJECT_ROOT
+    / "results"
+    / "exponential"
+    / "resistance"
+    / f"exponential_normal_vs_resistant_plot.png"
 )
+outpath.parent.mkdir(parents=True, exist_ok=True)
+
 plt.savefig(outpath, dpi=300, bbox_inches="tight")
 # plt.show()
 plt.close(fig)

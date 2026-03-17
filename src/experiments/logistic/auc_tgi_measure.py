@@ -179,8 +179,11 @@ fig.text(
 )
 
 outpath = (
-    Path(__file__).parent
-    / f"Graphs/No_Resistance/auc_fragility_logistic_{n_cycles}_cycles_Regime_C.png"
+    PROJECT_ROOT
+    / "results"
+    / "logistic"
+    / "no_resistance"
+    / f"auc_fragility_logistic_{n_cycles}_cycles.png"
 )
 outpath.parent.mkdir(parents=True, exist_ok=True)
 
