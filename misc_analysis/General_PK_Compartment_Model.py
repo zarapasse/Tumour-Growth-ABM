@@ -28,11 +28,13 @@ k = 0.25
 
 plt.rcParams["axes.titlepad"] = 6  # tighter titles
 
+
 # ---------------- Helper functions ---------------- #
 def gamma_kill(x):
     # Hill kill function γ(x)
     x = np.maximum(x, 0.0)  # safety
     return K_kill * (x**n) / (x**n + C**n)
+
 
 def simulate_tumor(x_bar, sigma, alpha):
     """
@@ -57,6 +59,7 @@ def simulate_tumor(x_bar, sigma, alpha):
 
     return t, x_t, V
 
+
 def fragility_function(x_bar, sigma, alpha):
     _, _, V_even = simulate_tumor(x_bar, 0, alpha)
     _, _, V_uneven = simulate_tumor(x_bar, sigma, alpha)
@@ -66,6 +69,7 @@ def fragility_function(x_bar, sigma, alpha):
 def set_panel_title(ax, label, title):
     # Bold label only, normal title text
     ax.set_title(rf"$\mathbf{{({label})}}$ {title}", loc="left", fontsize=12)
+
 
 # ---------------- Plot ---------------- #
 fig = plt.figure(figsize=(20, 12))
@@ -78,7 +82,9 @@ for row, alpha in enumerate(alpha_values):
 
     # Compute tumour trajectory and drug concentrations
     t_even, x_even, v_even = simulate_tumor(x_bar=mean_dose, sigma=0, alpha=alpha)
-    t_uneven, x_uneven, v_uneven = simulate_tumor(x_bar=mean_dose, sigma=mean_dose / 2, alpha=alpha)
+    t_uneven, x_uneven, v_uneven = simulate_tumor(
+        x_bar=mean_dose, sigma=mean_dose / 2, alpha=alpha
+    )
 
     # Compute fragility analysis
     fragility_results = {}
@@ -141,6 +147,8 @@ for row, alpha in enumerate(alpha_values):
     ax2.grid(True)
 
 # Save + show
-plt.savefig("misc_analysis/graphs/General_PK_Results_labelled.png", dpi=300, bbox_inches="tight")
+plt.savefig(
+    "misc_analysis/graphs/General_PK_Results_labelled.png", dpi=300, bbox_inches="tight"
+)
 print("Figure saved as 'misc_analysis/graphs/General_PK_Results_labelled.png'")
 plt.show()
