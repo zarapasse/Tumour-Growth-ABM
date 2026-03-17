@@ -122,11 +122,9 @@ These define:
 
 ## Installation
 
-From project root:
-
 ```bash
 git clone https://github.com/zarapasse/Tumour-Growth-ABM
-cd ABM_TUMOUR_GROWTH
+cd Tumour-Growth-ABM
 pip install -r requirements.txt
 ```
 
